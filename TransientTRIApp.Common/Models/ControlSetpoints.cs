@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TransientTRIApp.Common.Models
 {
-    internal class ControlSetpoints
+    public class ControlSetpoints
     {
     }
 }

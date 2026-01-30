@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TransientTRIApp.Core.Timing
 {
-    internal class HighResolutionTimer
+    public class HighResolutionTimer
     {
     }
 }

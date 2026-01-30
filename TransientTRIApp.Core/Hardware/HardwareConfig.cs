@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TransientTRIApp.Core.Hardware
 {
-    internal class HardwareConfig
+    public class HardwareConfig
     {
     }
 }

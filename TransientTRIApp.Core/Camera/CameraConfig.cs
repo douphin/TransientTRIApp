@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TransientTRIApp.Core.Camera
 {
-    internal class CameraConfig
+    public class CameraConfig
     {
     }
 }
