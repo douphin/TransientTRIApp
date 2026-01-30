@@ -14,7 +14,7 @@ using OpenCvSharp.Extensions;
 
 namespace TransientTRIApp.Core.Camera
 {
-    public class CameraService : ICameraService, IDisposable
+    public class WebCamService : ICameraService, IDisposable
     {
         private CancellationTokenSource _cts;
 

@@ -25,7 +25,7 @@ namespace TransientTRIApp.UI
             InitializeComponent();
 
             var hardware = new HardwareService();
-            var camera = new CameraService();
+            var camera = new WebCamService();
 
             _controller = new ApplicationController(hardware, camera);
 

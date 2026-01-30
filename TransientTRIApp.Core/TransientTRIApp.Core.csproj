@@ -69,7 +69,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Camera\CameraConfig.cs" />
-    <Compile Include="Camera\CameraService.cs" />
+    <Compile Include="Camera\LabCamService.cs" />
+    <Compile Include="Camera\WebCamService.cs" />
     <Compile Include="Hardware\DaqTaskManager.cs" />
     <Compile Include="Hardware\HardwareConfig.cs" />
     <Compile Include="Hardware\HardwareService.cs" />
