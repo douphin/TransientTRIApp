@@ -1,0 +1,62 @@
+﻿<Window x:Class="TransientTRIApp.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:TransientTRIApp.UI"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="800" Width="1200">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*" />
+            <ColumnDefinition Width="2*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Camera Feed -->
+        <Border Grid.Column="0" Margin="10" BorderBrush="Gray" BorderThickness="1">
+            <Image x:Name="CameraImage"
+                   Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="HighQuality" />
+        </Border>
+
+        <!-- Controls -->
+        <StackPanel Grid.Column="1" Margin="10" VerticalAlignment="Top">
+
+            <TextBlock Text="Measurements"
+                       FontSize="18"
+                       FontWeight="Bold"
+                       Margin="0,0,0,10"/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                <TextBlock Text="Voltage:" Width="80"/>
+                <TextBlock x:Name="VoltageText"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                <TextBlock Text="Current:" Width="80"/>
+                <TextBlock x:Name="CurrentText"/>
+            </StackPanel>
+
+            <Separator Margin="0,10,0,10"/>
+
+            <TextBlock Text="Controls"
+                       FontSize="18"
+                       FontWeight="Bold"
+                       Margin="0,0,0,10"/>
+
+            <TextBlock Text="Setpoint"/>
+            <Slider x:Name="SetpointSlider"
+                    Minimum="0"
+                    Maximum="10"
+                    ValueChanged="OnSetpointChanged"/>
+
+            <Button Content="Start"
+                    Margin="0,10,0,0"
+                    Click="OnStartClicked"/>
+
+            <Button Content="Stop"
+                    Margin="0,5,0,0"
+                    Click="OnStopClicked"/>
+        </StackPanel>
+    </Grid>
+</Window>
