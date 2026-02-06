@@ -34,6 +34,12 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Basler.Pylon, Version=1.2.0.0, Culture=neutral, PublicKeyToken=e389355f398382ab, processorArchitecture=x86">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\..\..\Program Files\Basler\pylon 8\Development\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll</HintPath>
+    </Reference>
+    <Reference Include="Ivi.Visa, Version=7.2.0.0, Culture=neutral, PublicKeyToken=a128c98f1d7717c1, processorArchitecture=MSIL" />
+    <Reference Include="NationalInstruments.Visa, Version=24.8.0.49276, Culture=neutral, PublicKeyToken=2eaa5af0834e221d, processorArchitecture=MSIL" />
     <Reference Include="OpenCvSharp, Version=1.0.0.0, Culture=neutral, PublicKeyToken=6adad1e807fea099, processorArchitecture=MSIL">
       <HintPath>..\packages\OpenCvSharp4.4.11.0.20250507\lib\netstandard2.0\OpenCvSharp.dll</HintPath>
     </Reference>
@@ -69,13 +75,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Camera\CameraConfig.cs" />
-    <Compile Include="Camera\LabCamService.cs" />
+    <Compile Include="Camera\CameraService.cs" />
+    <Compile Include="Camera\LabCamService_v3.cs" />
+    <Compile Include="Camera\LabCamService_v2.cs" />
+    <Compile Include="Camera\LabCamService_v1.cs" />
     <Compile Include="Camera\WebCamService.cs" />
-    <Compile Include="Hardware\DaqTaskManager.cs" />
-    <Compile Include="Hardware\HardwareConfig.cs" />
-    <Compile Include="Hardware\HardwareService.cs" />
+    <Compile Include="GPU\GPUMonitoringService.cs" />
+    <Compile Include="Hardware\PulseGeneratorService.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Services\ApplicationController.cs" />
     <Compile Include="Timing\HighResolutionTimer.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -87,6 +94,9 @@
       <Project>{19c39c9a-9e11-48d9-aa72-a923fc55a480}</Project>
       <Name>TransientTRIApp.Common</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Services\" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

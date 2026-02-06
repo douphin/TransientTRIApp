@@ -68,12 +68,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Events\CameraFrameEventArgs.cs" />
-    <Compile Include="Events\MeasurementUpdatedEventArgs.cs" />
+    <Compile Include="Interfaces\IGPUMonitoringService.cs" />
     <Compile Include="Interfaces\ICameraService.cs" />
-    <Compile Include="Interfaces\IHardwareService.cs" />
+    <Compile Include="Interfaces\IPulseGeneratorService.cs" />
     <Compile Include="Models\CameraFrame.cs" />
-    <Compile Include="Models\ControlSetpoints.cs" />
-    <Compile Include="Models\MeasurementData.cs" />
+    <Compile Include="Models\GPUMetrics.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -6,11 +6,10 @@ using System.Threading.Tasks;
 
 namespace TransientTRIApp.Common.Models
 {
-    public class MeasurementData
+    public class GPUMetrics
     {
+        public double GPUUtilization { get; set; } // 0-100%
+        public double GPUTemperature { get; set; }  // Celsius
         public DateTime Timestamp { get; set; }
-        public double Voltage { get; set; }
-        public double Current { get; set; }
     }
-
 }

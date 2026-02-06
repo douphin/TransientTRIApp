@@ -1,15 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using TransientTRIApp.Common.Events;
-using TransientTRIApp.Common.Models;
-using TransientTRIApp.Common.Interfaces;
 using System.Threading;
+using System.Threading.Tasks;
 using OpenCvSharp;
-using System.Drawing;
 using OpenCvSharp.Extensions;
+using TransientTRIApp.Common.Events;
+using TransientTRIApp.Common.Interfaces;
+using TransientTRIApp.Common.Models;
 
 
 namespace TransientTRIApp.Core.Camera
@@ -35,7 +36,8 @@ namespace TransientTRIApp.Core.Camera
                     if (!cap.Read(mat) || mat.Empty())
                         continue;
 
-                    var bmp = BitmapConverter.ToBitmap(mat);
+                    var bmp = MakeGrayscale3(BitmapConverter.ToBitmap(mat));
+                    
                     FrameReady?.Invoke(
                         this,
                         new CameraFrameEventArgs((Bitmap)bmp.Clone()));
@@ -48,6 +50,47 @@ namespace TransientTRIApp.Core.Camera
         public void Stop() => _cts?.Cancel();
 
         public void Dispose() => Stop();
+
+        // Source - https://stackoverflow.com/a/2265990
+        // Posted by Asad, modified by community. See post 'Timeline' for change history
+        // Retrieved 2026-02-05, License - CC BY-SA 4.0
+
+        public static Bitmap MakeGrayscale3(Bitmap original)
+        {
+            //create a blank bitmap the same size as original
+            Bitmap newBitmap = new Bitmap(original.Width, original.Height);
+
+            //get a graphics object from the new image
+            using (Graphics g = Graphics.FromImage(newBitmap))
+            {
+
+                //create the grayscale ColorMatrix
+                ColorMatrix colorMatrix = new ColorMatrix(
+                   new float[][]
+                   {
+             new float[] {.3f, .3f, .3f, 0, 0},
+             new float[] {.59f, .59f, .59f, 0, 0},
+             new float[] {.11f, .11f, .11f, 0, 0},
+             new float[] {0, 0, 0, 1, 0},
+             new float[] {0, 0, 0, 0, 1}
+                   });
+
+                //create some image attributes
+                using (ImageAttributes attributes = new ImageAttributes())
+                {
+
+                    //set the color matrix attribute
+                    attributes.SetColorMatrix(colorMatrix);
+
+                    //draw the original image on the new image
+                    //using the grayscale color matrix
+                    g.DrawImage(original, new Rectangle(0, 0, original.Width, original.Height),
+                                0, 0, original.Width, original.Height, GraphicsUnit.Pixel, attributes);
+                }
+            }
+            return newBitmap;
+        }
+
     }
- 
+
 }
