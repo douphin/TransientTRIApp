@@ -87,6 +87,7 @@ public class CameraService : ICameraService, IDisposable
             }
             finally
             {
+                Console.WriteLine("Done");
                 if (_camera != null)
                 {
                     try

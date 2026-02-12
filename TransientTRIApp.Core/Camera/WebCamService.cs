@@ -51,10 +51,6 @@ namespace TransientTRIApp.Core.Camera
 
         public void Dispose() => Stop();
 
-        // Source - https://stackoverflow.com/a/2265990
-        // Posted by Asad, modified by community. See post 'Timeline' for change history
-        // Retrieved 2026-02-05, License - CC BY-SA 4.0
-
         public static Bitmap MakeGrayscale3(Bitmap original)
         {
             //create a blank bitmap the same size as original

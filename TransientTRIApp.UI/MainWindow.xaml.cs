@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Timers;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -26,6 +29,15 @@ namespace TransientTRIApp.UI
         private DateTime[] _timestamps;
         private int _dataPointCount = 0;
         private const int MaxDataPoints = 60; // Keep last 60 readings
+        private object _bitmapLock = new object();
+        private volatile bool _isHotFrameRolling = false;
+        private Bitmap _currentDisplayBitmap;
+        private Bitmap _capturedBitmap;
+        private double _actualTriggerRate = 0;
+        private double _actualPulseWidth = 0;
+        private double _actualLVPeak = 0;
+        private long _frameCount = 0;
+        private object _frameCountLock = new object();
 
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
@@ -34,7 +46,7 @@ namespace TransientTRIApp.UI
         {
             InitializeComponent();
 
-            _cameraService = new WebCamService();
+            _cameraService = new CameraService();
             _gpuMonitor = new GPUMonitoringService();
             _pulseGenerator = new PulseGeneratorService();
 
@@ -69,6 +81,7 @@ namespace TransientTRIApp.UI
                     TriggerRateSlider.Value = Clamp(value, TriggerRateSlider.Minimum, TriggerRateSlider.Maximum);
                 }
             };
+            TriggerRateValue.Text = TriggerRateSlider.Value.ToString();
 
             // Pulse Width
             PulseWidthSlider.ValueChanged += (s, e) =>
@@ -83,6 +96,7 @@ namespace TransientTRIApp.UI
                     PulseWidthSlider.Value = Clamp(value, PulseWidthSlider.Minimum, PulseWidthSlider.Maximum);
                 }
             };
+            PulseWidthValue.Text = PulseWidthSlider.Value.ToString();
 
             // LV Peak
             LVPeakSlider.ValueChanged += (s, e) =>
@@ -97,6 +111,7 @@ namespace TransientTRIApp.UI
                     LVPeakSlider.Value = Clamp(value, LVPeakSlider.Minimum, LVPeakSlider.Maximum);
                 }
             };
+            LVPeakValue.Text = LVPeakSlider.Value.ToString();
         }
 
         private double Clamp(double value, double min, double max)
@@ -123,7 +138,9 @@ namespace TransientTRIApp.UI
                 StrokeThickness = 2,
                 Stroke = System.Windows.Media.Brushes.CornflowerBlue,
                 Fill = System.Windows.Media.Brushes.Transparent,
-                PointGeometrySize = 0
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+                
             };
 
             var temperatureSeries = new LineSeries
@@ -133,20 +150,67 @@ namespace TransientTRIApp.UI
                 StrokeThickness = 2,
                 Stroke = System.Windows.Media.Brushes.OrangeRed,
                 Fill = System.Windows.Media.Brushes.Transparent,
-                PointGeometrySize = 0
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+                
+                
             };
 
             GPUChart.Series = new SeriesCollection { utilizationSeries, temperatureSeries };
 
+            ReadMachineSettings();
+
             _cameraService.Start();
-            _gpuMonitor.Start(1000); // Start with 1 second interval
+            _gpuMonitor.Start(1000); // Start with 1 second interval   
+            StartTimers();
+        }
+
+        private void StartTimers()
+        {
+            System.Timers.Timer frameTimer = new System.Timers.Timer();
+            frameTimer.Interval = 1000;
+            frameTimer.Elapsed += FrameTimer_Elapsed;
+            frameTimer.Start();
+        }
+
+        private void FrameTimer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            lock (_frameCountLock)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FPSCounter.Text = _frameCount.ToString();
+                    _frameCount = 0;
+                }));
+            }
         }
 
         private void OnFrameReady(object sender, CameraFrameEventArgs e)
         {
             UI(() =>
             {
-                CameraImage.Source = ConvertBitmap(e.Bmp);
+                Bitmap bmp;
+                // Store the current bitmap temporarily
+                lock (_bitmapLock)
+                {
+                    _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
+                    if (_isHotFrameRolling)
+                    {
+                        bmp = ImageProcessing.SubtractBitmapsWithEmguCV(_currentDisplayBitmap, _capturedBitmap);
+                    }
+                    else
+                    {
+                        bmp = e.Bmp;
+                    }
+                }
+
+                // Display it as before
+                CameraImage.Source = ConvertBitmap(bmp);
+
+                lock (_frameCountLock)
+                {
+                    _frameCount++;
+                }
             });
         }
 
@@ -177,7 +241,39 @@ namespace TransientTRIApp.UI
             _timestamps[_dataPointCount - 1] = timestamp;
         }
 
+        private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
+        {
+            lock (_bitmapLock)
+            {
+                if (_currentDisplayBitmap != null)
+                {
+                    // Dispose old captured bitmap
+                    _capturedBitmap?.Dispose();
+
+                    // Clone the current display bitmap for storage
+                    _capturedBitmap = (Bitmap)_currentDisplayBitmap.Clone();
+
+                    //MessageBox.Show("Frame captured successfully!", "Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    //MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        private void OnStartHotFrameClicked(object sender, RoutedEventArgs e)
+        {
+            _isHotFrameRolling = !_isHotFrameRolling;
+            HotFrameToggle.Content = _isHotFrameRolling ? "Pause Hot Frame" : "Start Hot Frame";
+        }
+
         private void OnConfigurePulseGenerator(object sender, RoutedEventArgs e)
+        {
+            ConfigurePulseGenerator();
+        }
+
+        private async Task ConfigurePulseGenerator()
         {
             try
             {
@@ -185,20 +281,74 @@ namespace TransientTRIApp.UI
                 double pulseWidth = PulseWidthSlider.Value;
                 double lvPeak = LVPeakSlider.Value;
 
-                MessageBox.Show($"Configuring pulse generator:\n" +
-                    $"Trigger Rate: {triggerRate:F0} Hz\n" +
-                    $"Pulse Width: {pulseWidth:E2} s\n" +
-                    $"LV Peak: {lvPeak:F2} V",
-                    "Configuration", MessageBoxButton.OK, MessageBoxImage.Information);
+                await Task.Run(() =>
+                {
+                    MessageBox.Show($"Configuring pulse generator:\n" +
+                        $"Trigger Rate: {triggerRate:F0} Hz\n" +
+                        $"Pulse Width: {pulseWidth:E2} s\n" +
+                        $"LV Peak: {lvPeak:F2} V",
+                        "Configuration", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                // Uncomment when GPIB device is available:
-                // _pulseGenerator.Connect("GPIB0::6::INSTR");
-                // _pulseGenerator.Configure(triggerRate, pulseWidth, lvPeak);
-                // _pulseGenerator.Disconnect();
+                    // Uncomment when GPIB device is available:
+                    _pulseGenerator.Connect("GPIB0::6::INSTR");
+                    _pulseGenerator.Configure(triggerRate, pulseWidth, lvPeak);
+                    _pulseGenerator.Disconnect();
+
+                    Thread.Sleep(500); // Give it a moment
+                    _pulseGenerator.Connect("GPIB0::6::INSTR");
+                    var actualSettings = _pulseGenerator.GetCurrentSettings();
+                    _pulseGenerator.Disconnect();
+
+                    // Update stored values
+                    if (actualSettings.ContainsKey("TriggerRateHz"))
+                        _actualTriggerRate = actualSettings["TriggerRateHz"];
+                    if (actualSettings.ContainsKey("PulseWidthSec"))
+                        _actualPulseWidth = actualSettings["PulseWidthSec"];
+                    if (actualSettings.ContainsKey("LVPeakV"))
+                        _actualLVPeak = actualSettings["LVPeakV"];
+                });
+
+                // Update UI
+                UpdateActualValuesDisplay();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateActualValuesDisplay()
+        {
+            TriggerRateActual.Text = $"(Actual: {_actualTriggerRate:F0} Hz)";
+            PulseWidthActual.Text = $"(Actual: {_actualPulseWidth:E2} s)";
+            LVPeakActual.Text = $"(Actual: {_actualLVPeak:F2} V)";
+        }
+
+        // Call this on startup to read initial machine settings
+        private async Task ReadMachineSettings()
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    _pulseGenerator.Connect("GPIB0::6::INSTR");
+                    var settings = _pulseGenerator.GetCurrentSettings();
+                    _pulseGenerator.Disconnect();
+
+                    if (settings.ContainsKey("TriggerRateHz"))
+                        _actualTriggerRate = settings["TriggerRateHz"];
+                    if (settings.ContainsKey("PulseWidthSec"))
+                        _actualPulseWidth = settings["PulseWidthSec"];
+                    if (settings.ContainsKey("LVPeakV"))
+                        _actualLVPeak = settings["LVPeakV"];
+                });
+
+                UpdateActualValuesDisplay();
+                Console.WriteLine("Machine settings read successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error reading machine settings: {ex.Message}");
             }
         }
 
@@ -217,6 +367,9 @@ namespace TransientTRIApp.UI
 
         private void OnStartClicked(object sender, RoutedEventArgs e)
         {
+            _frameCount = 0;
+            FPSCounter.Text = "0";
+
             _cameraService.Start();
             _gpuMonitor.Start(1000);
         }
@@ -227,10 +380,53 @@ namespace TransientTRIApp.UI
             _gpuMonitor.Stop();
         }
 
+        // Method to retrieve the captured bitmap (thread-safe)
+        public Bitmap GetCapturedBitmap()
+        {
+            lock (_bitmapLock)
+            {
+                // Return a clone so caller doesn't accidentally dispose it
+                return _capturedBitmap?.Clone() as Bitmap;
+            }
+        }
+
+        // Method to save captured bitmap to file
+        public void SaveCapturedBitmapToFile(string filePath)
+        {
+            lock (_bitmapLock)
+            {
+                if (_capturedBitmap != null)
+                {
+                    try
+                    {
+                        _capturedBitmap.Save(filePath);
+                        Console.WriteLine($"Bitmap saved to {filePath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error saving bitmap: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("No captured bitmap to save");
+                }
+            }
+        }
+
+        // Clean up when window closes
         protected override void OnClosed(EventArgs e)
         {
+            lock (_bitmapLock)
+            {
+                _capturedBitmap?.Dispose();
+                _currentDisplayBitmap?.Dispose();
+            }
+
             _cameraService.Stop();
+            Thread.Sleep(100);
             _gpuMonitor.Stop();
+            Thread.Sleep(100);
             base.OnClosed(e);
         }
 
