@@ -63,6 +63,12 @@
                         <TextBlock Text="Update Interval (ms):" VerticalAlignment="Center" Margin="0,0,12,0"/>
                         <TextBox x:Name="UpdateIntervalBox" Width="80" Padding="8,4" Text="1000" VerticalContentAlignment="Center"/>
                         <Button Content="Apply" Margin="8,0,0,0" Padding="12,4" Click="OnUpdateIntervalApply" Background="#3498db" Foreground="White"/>
+
+                        <Button Content="Select Folder" Margin="20,0,0,0" Padding="12,4" Click="OnSelectRecordingFolder" Background="#9b59b6" Foreground="White"/>
+
+                        <TextBlock x:Name="RecordingFolderDisplay" Text="No folder selected" Foreground="#666" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="10"/>
+
+                        <Button x:Name="RecordingToggleButton" Content="Start Recording" Margin="20,0,0,0" Padding="12,4" Click="OnToggleRecording" Background="#27ae60" Foreground="White" IsEnabled="False"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -161,8 +167,8 @@
                                 <TextBlock Grid.Column="1" x:Name="PulseWidthValue" Foreground="#9b59b6" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
                                 <TextBlock Grid.Column="2" x:Name="PulseWidthActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
                             </Grid>
-                            <Slider x:Name="PulseWidthSlider" Minimum="0.0001" Maximum="0.1" Value="0.001" 
-                                   Foreground="#9b59b6" IsSnapToTickEnabled="True" TickFrequency="0.001" Margin="0,0,0,6"/>
+                            <Slider x:Name="PulseWidthSlider" Minimum="0.0001" Maximum="0.01" Value="0.001" 
+                                   Foreground="#9b59b6" IsSnapToTickEnabled="True" TickFrequency="0.00001" Margin="0,0,0,6"/>
                             <TextBox x:Name="PulseWidthInput" Padding="8,4" Text="0.001" 
                                     Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
                         </StackPanel>

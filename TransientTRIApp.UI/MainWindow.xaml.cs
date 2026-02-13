@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Controls;
 using LiveCharts;
 using LiveCharts.Wpf;
 using TransientTRIApp.Common;
@@ -18,6 +20,8 @@ using TransientTRIApp.Core;
 using TransientTRIApp.Core.Camera;
 using TransientTRIApp.Core.GPU;
 using TransientTRIApp.Core.Hardware;
+using Emgu.CV.Aruco;
+using System.Diagnostics;
 
 namespace TransientTRIApp.UI
 {
@@ -40,6 +44,12 @@ namespace TransientTRIApp.UI
         private long _frameCount = 0;
         private readonly object _frameCountLock = new object();
         private readonly int _metricSampleRate = 1000;
+
+        private string _recordingFolderPath;
+        private StreamWriter _csvFile;
+        private volatile bool _isRecording = false;
+        private object _csvModelLock = new object();
+        private System.Collections.Generic.Dictionary<string, CombinedMetrics> _csvModel = new System.Collections.Generic.Dictionary<string, CombinedMetrics>();
 
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
@@ -183,8 +193,7 @@ namespace TransientTRIApp.UI
                 Stroke = System.Windows.Media.Brushes.CornflowerBlue,
                 Fill = System.Windows.Media.Brushes.Transparent,
                 PointGeometrySize = 0,
-                LineSmoothness = 0,
-                
+                LineSmoothness = 0,           
             };
 
             var gpuTemperatureSeries = new LineSeries
@@ -195,9 +204,7 @@ namespace TransientTRIApp.UI
                 Stroke = System.Windows.Media.Brushes.OrangeRed,
                 Fill = System.Windows.Media.Brushes.Transparent,
                 PointGeometrySize = 0,
-                LineSmoothness = 0,
-                
-                
+                LineSmoothness = 0,               
             };
 
             var tcTemperatureSeries = new LineSeries
@@ -209,8 +216,6 @@ namespace TransientTRIApp.UI
                 Fill = System.Windows.Media.Brushes.Transparent,
                 PointGeometrySize = 0,
                 LineSmoothness = 0,
-
-
             };
 
             GPUChart.Series = new SeriesCollection { gpuUtilizationSeries, gpuTemperatureSeries, tcTemperatureSeries };
@@ -276,11 +281,22 @@ namespace TransientTRIApp.UI
         {
             UI(() =>
             {
-                AddGPUDataPoint(metrics.GPUUtilization, metrics.GPUTemperature, metrics.Timestamp);
+                AddGPUDataPoint(metrics);
+
+                if (_isRecording)
+                {
+                    lock (_csvModelLock)
+                    {
+                        if (_csvModel.TryGetValue(metrics.Timestamp.ToString(), out var value))
+                            value.Update(metrics);
+                        else
+                            _csvModel.Add(metrics.Timestamp.ToString(), new CombinedMetrics(metrics));
+                    }
+                }
             });
         }
 
-        private void AddGPUDataPoint(double utilization, double temperature, DateTime timestamp)
+        private void AddGPUDataPoint(GPUMetrics metrics)
         {
             if (_dataPointCount >= MaxDataPoints)
             {
@@ -294,9 +310,9 @@ namespace TransientTRIApp.UI
                 _dataPointCount++;
             }
 
-            GPUUtilizationData.Add(utilization);
-            GPUTemperatureData.Add(temperature);
-            _timestamps[_dataPointCount - 1] = timestamp;
+            GPUUtilizationData.Add(metrics.GPUUtilization);
+            GPUTemperatureData.Add(metrics.GPUTemperature);
+            _timestamps[_dataPointCount - 1] = metrics.Timestamp;
         }
 
         public void OnTCReadingsUpdated(object sender, ThermocoupleReadings readings)
@@ -306,7 +322,102 @@ namespace TransientTRIApp.UI
                 TCTemperatureData.Add(readings.TCTemperature);
                 if (TCTemperatureData.Count > 60)
                     TCTemperatureData.RemoveAt(0);
+
+                if (_isRecording)
+                {
+                    lock (_csvModelLock)
+                    {
+                        if (_csvModel.TryGetValue(readings.Timestamp.ToString(), out var value))
+                            value.Update(readings);
+                        else
+                            _csvModel.Add(readings.Timestamp.ToString(), new CombinedMetrics(readings));
+                    }
+                }
             });
+        }
+
+
+        private void OnSelectRecordingFolder(object sender, RoutedEventArgs e)
+        {
+            var dialog = new System.Windows.Forms.FolderBrowserDialog();
+            dialog.Description = "Select folder to save recording data";
+
+            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                _recordingFolderPath = dialog.SelectedPath;
+                RecordingFolderDisplay.Text = System.IO.Path.GetFileName(_recordingFolderPath);
+                RecordingToggleButton.IsEnabled = true;
+                Console.WriteLine($"Recording folder selected: {_recordingFolderPath}");
+            }
+        }
+
+        private void OnToggleRecording(object sender, RoutedEventArgs e)
+        {
+            if (_isRecording)
+            {
+                StopRecording();
+            }
+            else
+            {
+                StartRecording();
+            }
+        }
+
+        private void StartRecording()
+        {
+            try
+            {
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+                string metricsPath = System.IO.Path.Combine(_recordingFolderPath, $"metrics_{timestamp}.csv");
+
+                _csvFile = new StreamWriter(metricsPath, true);
+                _csvFile.WriteLine("TCTimestamp, GPUTimestamp,TCTemperature(C),GPUTemperature(C),GPUUtilization(%)");
+                _csvFile.Flush();
+
+                _isRecording = true;
+                RecordingToggleButton.Content = "Stop Recording";
+                RecordingToggleButton.Background = System.Windows.Media.Brushes.IndianRed;
+                RecordingFolderDisplay.Text += " [RECORDING]";
+
+                Console.WriteLine($"Recording started: {metricsPath}");
+                //MessageBox.Show($"Recording started!\nMetrics saved to: {metricsPath}", "Recording Started", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error starting recording: {ex.Message}");
+            }
+        }
+
+        private async Task StopRecording()
+        {
+            try
+            {
+                RecordingToggleButton.Content = "Saving...";
+                _isRecording = false;
+
+                await Task.Run(() =>
+                {
+                    foreach(CombinedMetrics item in _csvModel.Values)
+                    {
+                        _csvFile.WriteLine($"{item.TCTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.GPUTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.TCTemperature:F2},{item.GPUTemperature:F2},{item.GPUUtilization:F1}");
+                        _csvFile.Flush();
+                    }
+                });
+       
+                _csvFile?.Close();
+                _csvFile?.Dispose();
+
+                RecordingToggleButton.Content = "Start Recording";
+                RecordingToggleButton.Background = System.Windows.Media.Brushes.LimeGreen;
+                RecordingFolderDisplay.Text = RecordingFolderDisplay.Text.Replace(" [RECORDING]", "");
+
+                Console.WriteLine("Recording stopped");
+                MessageBox.Show("Recording stopped!", "Recording Stopped", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error stopping recording: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
@@ -389,19 +500,44 @@ namespace TransientTRIApp.UI
         {
             try
             {
-                await Task.Run(() =>
+                if (Stopwatch.IsHighResolution)
                 {
-                    _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    _pulseGenerator.InitialConfiguration();
-                    _pulseGenerator.GetCurrentSettings();
-                    _pulseGenerator.Disconnect();
+                    Console.WriteLine("HiRes");
+                }
+                else
+                {
+                    Console.WriteLine("Nope");
+                }
 
-                    _actualTriggerRate = _pulseGenerator.TriggerRateHz;
-                    _actualPulseWidth = _pulseGenerator.PulseWidthSec;
-                    _actualLVPeak = _pulseGenerator.LVPeakV;
-                });
+                long freq = Stopwatch.Frequency;
+                Console.WriteLine($"ticks per sec {freq}");
+                long nsPerTick = (1000L * 1000L * 1000L) / freq;
+                Console.WriteLine($"ns per tick{nsPerTick}");
+
+
+                    await Task.Run(() =>
+                    {
+                        _pulseGenerator.Connect("GPIB0::6::INSTR");
+                        _pulseGenerator.InitialConfiguration();
+                        _pulseGenerator.GetCurrentSettings();
+                        _pulseGenerator.Disconnect();
+
+                        _actualTriggerRate = _pulseGenerator.TriggerRateHz;
+                        _actualPulseWidth = _pulseGenerator.PulseWidthSec;
+                        _actualLVPeak = _pulseGenerator.LVPeakV;
+                    });
 
                 UpdateActualValuesDisplay();
+
+                TriggerRateSlider.Value = _actualTriggerRate;
+                TriggerRateInput.Text = _actualTriggerRate.ToString();
+
+                PulseWidthSlider.Value = _actualPulseWidth;
+                PulseWidthInput.Text = _actualPulseWidth.ToString();
+
+                LVPeakSlider.Value = _actualLVPeak;
+                LVPeakInput.Text = _actualLVPeak.ToString();
+
                 Console.WriteLine("Machine settings read successfully");
             }
             catch (Exception ex)
@@ -415,6 +551,7 @@ namespace TransientTRIApp.UI
             if (int.TryParse(UpdateIntervalBox.Text, out int intervalMs))
             {
                 _gpuMonitor.SetUpdateInterval(intervalMs);
+                _thermocoupleService.SetUpdateInterval(intervalMs);
                 MessageBox.Show($"Update interval set to {intervalMs}ms", "GPU Monitor", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
@@ -481,6 +618,9 @@ namespace TransientTRIApp.UI
                 _capturedBitmap?.Dispose();
                 _currentDisplayBitmap?.Dispose();
             }
+
+            if (_isRecording)
+                StopRecording();
 
             _cameraService.Stop();
             Thread.Sleep(100);

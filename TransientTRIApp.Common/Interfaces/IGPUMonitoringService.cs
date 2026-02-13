@@ -10,7 +10,7 @@ namespace TransientTRIApp.Common.Interfaces
     public interface IGPUMonitoringService
     {
         event EventHandler<GPUMetrics> MetricsUpdated;
-        void Start(int updateIntervalMs = 1000);
+        void Start(int? updateIntervalMs);
         void Stop();
         void SetUpdateInterval(int intervalMs);
     }

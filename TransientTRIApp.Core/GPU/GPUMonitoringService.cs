@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 using TransientTRIApp.Common.Interfaces;
 using TransientTRIApp.Common.Models;
 
@@ -15,31 +16,50 @@ namespace TransientTRIApp.Core.GPU
         private CancellationTokenSource _cts;
         private int _updateIntervalMs = 1000;
         private bool _running = false;
+        private bool _isTimerConfigured = false;
         private readonly string _nvidiaSmiBPath = @"C:\Users\UC-TEC-TRI\Documents\nvidia-smi.exe";
+        System.Timers.Timer _timer = new System.Timers.Timer();
 
         public event EventHandler<GPUMetrics> MetricsUpdated;
 
-        public void Start(int updateIntervalMs = 1000)
+        public void Start(int? updateIntervalMs)
         {
             if (_running)
                 return;
 
-            _updateIntervalMs = updateIntervalMs;
+            if (updateIntervalMs != null)
+            {
+                _updateIntervalMs = (int)updateIntervalMs;
+            }
+
+            if (_isTimerConfigured == false)
+            {
+                _timer.Elapsed += (sender, e) => OnTakeReadingElapsed(sender, e);
+                _isTimerConfigured = true;
+            }
+            _timer.Interval = _updateIntervalMs;
+
             _cts = new CancellationTokenSource();
             _running = true;
 
-            Task.Run(() => MonitoringLoop(_cts.Token));
+            Thread.Sleep(1000 - DateTime.Now.Millisecond);
+            _timer.Start();
         }
 
         public void Stop()
         {
             _running = false;
+            _timer.Stop();
             _cts?.Cancel();
         }
 
         public void SetUpdateInterval(int intervalMs)
         {
             _updateIntervalMs = Math.Max(100, intervalMs); // Minimum 100ms
+            _timer.Stop();
+            _timer.Interval = _updateIntervalMs;
+            Thread.Sleep(1000 - DateTime.Now.Millisecond);
+            _timer.Start();
             Console.WriteLine($"GPU monitoring update interval set to {_updateIntervalMs}ms");
         }
 
@@ -49,24 +69,19 @@ namespace TransientTRIApp.Core.GPU
             _cts?.Dispose();
         }
 
-        private void MonitoringLoop(CancellationToken token)
+        private void OnTakeReadingElapsed(object sender, ElapsedEventArgs e)
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                try
+                var metrics = QueryGPUMetrics();
+                if (metrics != null)
                 {
-                    var metrics = QueryGPUMetrics();
-                    if (metrics != null)
-                    {
-                        MetricsUpdated?.Invoke(this, metrics);
-                    }
-                    Thread.Sleep(_updateIntervalMs);
+                    MetricsUpdated?.Invoke(this, metrics);
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error in GPU monitoring loop: {ex.Message}");
-                    Thread.Sleep(_updateIntervalMs);
-                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in GPU monitoring loop: {ex.Message}");
             }
         }
 

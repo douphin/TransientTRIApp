@@ -11,7 +11,8 @@ namespace TransientTRIApp.Common.Interfaces
     public interface IThermocoupleService
     {
         event EventHandler<ThermocoupleReadings> TempReady;
-        void Start(int updateIntervalMs = 1000);
+        void Start(int? updateIntervalMs);
+        void SetUpdateInterval(int updateIntervalMs);
         void Stop();
     }
 }

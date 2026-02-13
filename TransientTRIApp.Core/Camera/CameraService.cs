@@ -10,6 +10,7 @@ using TransientTRIApp.Common.Interfaces;
 public class CameraService : ICameraService, IDisposable
 {
     private CancellationTokenSource _cts;
+    private MultimediaTimer _timer;
     private Camera _camera;
     private bool _disposed = false;
 
@@ -23,6 +24,34 @@ public class CameraService : ICameraService, IDisposable
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
 
+        Task.Run(() =>
+        {
+            try
+            {
+                _camera = new Camera();
+                _camera.Open();
+                Console.WriteLine("Camera opened successfully.");
+
+                // Configure camera to match your current settings
+                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(2500.0);
+                _camera.Parameters[PLCamera.GainRaw].SetValue(370);
+
+                Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
+                Console.WriteLine($"Gain set to: {_camera.Parameters[PLCamera.GainRaw].GetValue()}");
+
+                // Start continuous acquisition
+                _camera.StreamGrabber.Start();
+
+                _timer = new MultimediaTimer();
+                _timer.OnTick += GrabFrame;
+                _timer.Start(50);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to start camera {ex.Message}");
+            }
+        });
+        return;
         Task.Run(() =>
         {
             try
@@ -67,7 +96,8 @@ public class CameraService : ICameraService, IDisposable
                             Console.WriteLine($"Grab failed: {grabResult.ErrorDescription}");
                         }
 
-                        Thread.Sleep(33); // ~30 FPS
+                        // Okay so the camera can only do 20 fps, which should correspond to a 50 ms wait between frames, however, it takes about 3-4 ms to process and display the image, leaving us with a 46 ms downtime. Anything lower than 46ms, will not have effect
+                        Thread.Sleep(46); 
                     }
                     catch (Exception ex)
                     {
@@ -105,6 +135,47 @@ public class CameraService : ICameraService, IDisposable
         }, token);
     }
 
+    public void GrabFrame()
+    {
+        IGrabResult grabResult = null;
+        Bitmap bmp = null;
+
+        try
+        {
+            grabResult = _camera.StreamGrabber.RetrieveResult(5000, TimeoutHandling.ThrowException);
+
+            if (grabResult != null && grabResult.GrabSucceeded)
+            {
+                // Convert grab result to bitmap
+                bmp = ConvertGrabv2(grabResult);
+
+                if (bmp != null)
+                {
+                    // Invoke event with the bitmap
+                    FrameReady?.Invoke(this, new CameraFrameEventArgs(bmp));
+                    bmp = null; // Don't dispose here - the UI will handle it
+                }
+            }
+            else if (grabResult != null)
+            {
+                Console.WriteLine($"Grab failed: {grabResult.ErrorDescription}");
+            }
+
+            // Okay so the camera can only do 20 fps, which should correspond to a 50 ms wait between frames, however, it takes about 3-4 ms to process and display the image, leaving us with a 46 ms downtime. Anything lower than 46ms, will not have effect
+            //Thread.Sleep(46);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error capturing frame: {ex.Message}");
+            bmp?.Dispose();
+        }
+        finally
+        {
+            // Dispose grab result immediately to free resources
+            grabResult?.Dispose();
+        }
+    }
+
     public void Stop()
     {
         _cts?.Cancel();
@@ -114,6 +185,20 @@ public class CameraService : ICameraService, IDisposable
     {
         if (_disposed)
             return;
+
+        if (_camera != null)
+        {
+            try
+            {
+                _camera.StreamGrabber.Stop();
+                _camera.Close();
+                _camera.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error closing camera: {ex.Message}");
+            }
+        }
 
         Stop();
         _cts?.Dispose();

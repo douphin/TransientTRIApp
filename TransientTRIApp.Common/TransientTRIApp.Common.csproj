@@ -71,9 +71,11 @@
     <Compile Include="Interfaces\IPulseGeneratorService.cs" />
     <Compile Include="Interfaces\IThermocoupleService.cs" />
     <Compile Include="Models\CameraFrame.cs" />
+    <Compile Include="Models\CombinedMetrics.cs" />
     <Compile Include="Models\GPUMetrics.cs" />
     <Compile Include="Models\ThermocoupleReadings.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Util\MultimediaTimer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
