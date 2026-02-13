@@ -14,7 +14,12 @@ namespace TransientTRIApp.Core.Hardware
     {
         private IMessageBasedSession _session;
         private bool _connected = false;
-        private int _commandDelayMs = 300;
+        private int _commandDelayMs = 400;
+        
+        public double TriggerRateHz { get; set; }
+        public double PulseWidthSec { get; set; }
+        public double LVPeakV {  get; set; }
+
 
         public void Connect(string gpibAddress)
         {
@@ -37,6 +42,29 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
+        public void InitialConfiguration()
+        {
+            try
+            {
+                // Send initial configuration commands
+                SendCommand("MO PL");
+                Console.WriteLine("Sent: MO PL");
+                Thread.Sleep(_commandDelayMs);
+
+                SendCommand("TR SC");
+                Console.WriteLine("Sent: TR SC");
+                Thread.Sleep(_commandDelayMs);
+
+                SendCommand("TR EP");
+                Console.WriteLine("Sent: TR EP");
+                Thread.Sleep(_commandDelayMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error During Initial Pulse Generator Configuration {ex.Message}");
+            }
+        }
+
         public void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV)
         {
             if (!_connected)
@@ -44,54 +72,51 @@ namespace TransientTRIApp.Core.Hardware
 
             try
             {
-                // Send initial configuration commands
-                SendCommand("MO PL");
-                Console.WriteLine("Sent: MO PL");
-                Thread.Sleep(_commandDelayMs); 
+                if (triggerRateHz != TriggerRateHz)
+                {
+                    // Configure Trigger Rate
+                    Console.WriteLine("\n--- Configuring Trigger Rate ---");
+                    string trInCommand = string.Format("TR IN {0:e4} HZ;", triggerRateHz);
+                    SendCommand(trInCommand);
+                    Console.WriteLine($"Sent: {trInCommand}");
+                    Thread.Sleep(_commandDelayMs);
 
-                SendCommand("TR SC");
-                Console.WriteLine("Sent: TR SC");
-                Thread.Sleep(_commandDelayMs); 
 
-                SendCommand("TR EP");
-                Console.WriteLine("Sent: TR EP");
-                Thread.Sleep(_commandDelayMs); 
+                    string trInRead = SendAndRead("TR IN");
+                    Console.WriteLine($"Read back: {trInRead}");
+                    TriggerRateHz = ValidateSetting("Trigger Rate", triggerRateHz, trInRead);
+                    Thread.Sleep(_commandDelayMs);
+                }
 
-                // Configure Trigger Rate
-                Console.WriteLine("\n--- Configuring Trigger Rate ---");
-                string trInCommand = string.Format("TR IN {0:e4} HZ;", triggerRateHz);
-                SendCommand(trInCommand);
-                Console.WriteLine($"Sent: {trInCommand}");
-                Thread.Sleep(_commandDelayMs); 
+                if (pulseWidthSec != PulseWidthSec)
+                {
+                    // Configure Pulse Width
+                    Console.WriteLine("\n--- Configuring Pulse Width ---");
+                    string tiWdCommand = string.Format("TI WD {0:e4} s;", pulseWidthSec);
+                    SendCommand(tiWdCommand);
+                    Console.WriteLine($"Sent: {tiWdCommand}");
+                    Thread.Sleep(_commandDelayMs);
 
-                string trInRead = SendAndRead("TR IN");
-                Console.WriteLine($"Read back: {trInRead}");
-                ValidateSetting("Trigger Rate", triggerRateHz, trInRead);
-                Thread.Sleep(_commandDelayMs); 
+                    string tiWdRead = SendAndRead("TI WD");
+                    Console.WriteLine($"Read back: {tiWdRead}");
+                    PulseWidthSec = ValidateSetting("Pulse Width", pulseWidthSec, tiWdRead);
+                    Thread.Sleep(_commandDelayMs);
+                }
 
-                // Configure Pulse Width
-                Console.WriteLine("\n--- Configuring Pulse Width ---");
-                string tiWdCommand = string.Format("TI WD {0:e4} s;", pulseWidthSec);
-                SendCommand(tiWdCommand);
-                Console.WriteLine($"Sent: {tiWdCommand}");
-                Thread.Sleep(_commandDelayMs); 
+                if (lvPeakV != LVPeakV)
+                {
+                    // Configure LV Peak
+                    Console.WriteLine("\n--- Configuring LV Peak ---");
+                    string lvPkCommand = string.Format("LV PK {0:e4} V;", lvPeakV);
+                    SendCommand(lvPkCommand);
+                    Console.WriteLine($"Sent: {lvPkCommand}");
+                    Thread.Sleep(_commandDelayMs + 100);
 
-                string tiWdRead = SendAndRead("TI WD");
-                Console.WriteLine($"Read back: {tiWdRead}");
-                ValidateSetting("Pulse Width", pulseWidthSec, tiWdRead);
-                Thread.Sleep(_commandDelayMs); 
-
-                // Configure LV Peak
-                Console.WriteLine("\n--- Configuring LV Peak ---");
-                string lvPkCommand = string.Format("LV PK {0:e4} V;", lvPeakV);
-                SendCommand(lvPkCommand);
-                Console.WriteLine($"Sent: {lvPkCommand}");
-                Thread.Sleep(_commandDelayMs+100); 
-
-                string lvPkRead = SendAndRead("LV PK");
-                Console.WriteLine($"Read back: {lvPkRead}");
-                ValidateSetting("LV Peak", lvPeakV, lvPkRead);
-                //Thread.Sleep(_commandDelayMs); 
+                    string lvPkRead = SendAndRead("LV PK");
+                    Console.WriteLine($"Read back: {lvPkRead}");
+                    LVPeakV = ValidateSetting("LV Peak", lvPeakV, lvPkRead);
+                    //Thread.Sleep(_commandDelayMs); 
+                }
 
                 Console.WriteLine("\nPulse generator configured successfully!");
             }
@@ -102,42 +127,22 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
-        public Dictionary<string, double> GetCurrentSettings()
+        public void GetCurrentSettings()
         {
             if (!_connected)
                 throw new InvalidOperationException("Pulse generator not connected.");
 
-            var settings = new Dictionary<string, double>();
-
             try
             {
-                settings["TriggerRateHz"] = ExtractValueWithUnitConversion(SendAndRead("TR IN"));
+                TriggerRateHz = ExtractValueWithUnitConversion(SendAndRead("TR IN"));
                 Thread.Sleep(_commandDelayMs);
-                settings["PulseWidthSec"] = ExtractValueWithUnitConversion(SendAndRead("TI WD"));
+                PulseWidthSec = ExtractValueWithUnitConversion(SendAndRead("TI WD"));
                 Thread.Sleep(_commandDelayMs);
-                settings["LVPeakV"] = ExtractValueWithUnitConversion(SendAndRead("LV PK"));
-
-
-                //string trInRead = SendAndRead("TR IN");
-                //if (double.TryParse(ExtractValue(trInRead), out double triggerRate))
-                //    settings["TriggerRateHz"] = triggerRate;
-                //Thread.Sleep(_commandDelayMs);
-
-                //string tiWdRead = SendAndRead("TI WD");
-                //if (double.TryParse(ExtractValue(tiWdRead), out double pulseWidth))
-                //    settings["PulseWidthSec"] = pulseWidth;
-                //Thread.Sleep(_commandDelayMs);
-
-                //string lvPkRead = SendAndRead("LV PK");
-                //if (double.TryParse(ExtractValue(lvPkRead), out double lvPeak))
-                //    settings["LVPeakV"] = lvPeak;
-
-                return settings;
+                LVPeakV = ExtractValueWithUnitConversion(SendAndRead("LV PK"));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error reading settings: {ex.Message}");
-                return settings;
             }
         }
 
@@ -201,7 +206,7 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
-        private void ValidateSetting(string settingName, double expectedValue, string readbackString)
+        private double ValidateSetting(string settingName, double expectedValue, string readbackString)
         {
             try
             {
@@ -216,10 +221,12 @@ namespace TransientTRIApp.Core.Hardware
                 {
                     Console.WriteLine($"{settingName} mismatch: expected {expectedValue:e4}, got {readbackValue:e4}");
                 }
+                return readbackValue;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Could not validate {settingName}: {ex.Message}");
+                return -1;
             }
         }
 

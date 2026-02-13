@@ -87,6 +87,16 @@ namespace TransientTRIApp.Core.Camera
             return newBitmap;
         }
 
+        public void SetExposure(double exposureUs)
+        {
+
+        }
+
+        public double GetExposure()
+        {
+            return -1;
+        }
+
     }
 
 }

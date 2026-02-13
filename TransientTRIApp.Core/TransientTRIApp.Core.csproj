@@ -56,6 +56,7 @@
       <HintPath>..\..\..\..\..\..\Program Files\Basler\pylon 8\Development\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll</HintPath>
     </Reference>
     <Reference Include="Ivi.Visa, Version=7.2.0.0, Culture=neutral, PublicKeyToken=a128c98f1d7717c1, processorArchitecture=MSIL" />
+    <Reference Include="NationalInstruments.DAQmx, Version=25.0.45.49157, Culture=neutral, PublicKeyToken=4febd62461bf11a4, processorArchitecture=x86" />
     <Reference Include="NationalInstruments.Visa, Version=24.8.0.49276, Culture=neutral, PublicKeyToken=2eaa5af0834e221d, processorArchitecture=MSIL" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -72,12 +73,11 @@
   <ItemGroup>
     <Compile Include="Camera\CameraConfig.cs" />
     <Compile Include="Camera\CameraService.cs" />
-    <Compile Include="Camera\LabCamService_v3.cs" />
-    <Compile Include="Camera\LabCamService_v2.cs" />
     <Compile Include="Camera\LabCamService_v1.cs" />
     <Compile Include="Camera\WebCamService.cs" />
     <Compile Include="GPU\GPUMonitoringService.cs" />
     <Compile Include="Hardware\PulseGeneratorService.cs" />
+    <Compile Include="Hardware\ThermocoupleService.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Timing\HighResolutionTimer.cs" />
   </ItemGroup>

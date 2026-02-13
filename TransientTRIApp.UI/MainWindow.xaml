@@ -77,14 +77,18 @@
                     <StackPanel>
                         <TextBlock Text="Camera Frame Comparisons" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
                         <Separator Background="#eee" Margin="0,0,0,8"/>
-
-                        <Button Content="Set Cold Frame" Padding="12,8" 
+                        <Grid Margin="0,8,4,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="Set Cold Frame" Padding="12,8" 
                             Background="Blue" Foreground="White" FontWeight="SemiBold" 
-                            Cursor="Hand" Click="OnSetColdFrameClicked" Margin="0,0,0,8"/>
-                        <Button Content="Start Hot Frame" Padding="12,8" x:Name="HotFrameToggle"
+                            Cursor="Hand" Click="OnSetColdFrameClicked" Margin="0,0,4,8"/>
+                            <Button Grid.Column="1" Content="Start Hot Frame" Padding="12,8" x:Name="HotFrameToggle"
                             Background="Red" Foreground="White" FontWeight="SemiBold" 
-                            Cursor="Hand" Click="OnStartHotFrameClicked" Margin="0,0,0,8"/>
-
+                            Cursor="Hand" Click="OnStartHotFrameClicked" Margin="4,0,0,8"/>
+                        </Grid>
                         <!--<StackPanel Margin="0,0,0,8">
                             <TextBlock Text="Voltage:" Foreground="#666" FontSize="11" Margin="0,0,0,4"/>
                             <TextBlock x:Name="VoltageText" FontSize="16" FontWeight="SemiBold" Foreground="#333"/>
@@ -94,6 +98,30 @@
                             <TextBlock Text="Current:" Foreground="#666" FontSize="11" Margin="0,0,0,4"/>
                             <TextBlock x:Name="CurrentText" FontSize="16" FontWeight="SemiBold" Foreground="#333"/>
                         </StackPanel>-->
+                    </StackPanel>
+                </Border>
+
+                <!-- Camera Settings Section -->
+                <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Camera Settings" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
+                        <Separator Background="#eee" Margin="0,0,0,12"/>
+
+                        <!-- Exposure Time -->
+                        <StackPanel Margin="0,0,0,12">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Exposure Time (ms):" Foreground="#666" FontSize="11"/>
+                                <TextBlock Grid.Column="1" x:Name="ExposureValue" Foreground="#16a085" FontWeight="SemiBold" FontSize="12"/>
+                            </Grid>
+                            <Slider x:Name="ExposureSlider" Minimum="0" Maximum="20" Value="2.5" 
+                   Foreground="#16a085" IsSnapToTickEnabled="True" TickFrequency="0.1" Margin="0,0,0,6"/>
+                            <TextBox x:Name="ExposureInput" Padding="8,4" Text="2.5" 
+                    Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -153,23 +181,33 @@
                             </Grid>
                             <Slider x:Name="LVPeakSlider" Minimum="10" Maximum="100" Value="10" 
                                    Foreground="#e74c3c" IsSnapToTickEnabled="True" TickFrequency="1" Margin="0,0,0,6"/>
-                            <TextBox x:Name="LVPeakInput" Padding="8,4" Text="5" 
+                            <TextBox x:Name="LVPeakInput" Padding="8,4" Text="10" 
                                     Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
+
+                            <Button Content="Configure Pulse Generator" Padding="12,8" 
+                                Background="#27ae60" Foreground="White" FontWeight="SemiBold" 
+                                Cursor="Hand" Click="OnConfigurePulseGenerator" Margin="0,16,4,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- Control Buttons -->
+                <!-- Control Buttons -->
                 <StackPanel Margin="0,0,0,0">
-                    <Button Content="Configure Pulse Generator" Padding="12,8" 
-                           Background="#27ae60" Foreground="White" FontWeight="SemiBold" 
-                           Cursor="Hand" Click="OnConfigurePulseGenerator" Margin="0,0,0,8"/>
-                    <Button Content="Start All" Padding="12,8" 
-                           Background="#3498db" Foreground="White" FontWeight="SemiBold" 
-                           Cursor="Hand" Click="OnStartClicked" Margin="0,0,0,8"/>
-                    <Button Content="Stop All" Padding="12,8" 
-                           Background="#e74c3c" Foreground="White" FontWeight="SemiBold" 
-                           Cursor="Hand" Click="OnStopClicked" Margin="0,0,0,0"/>
+                    
+
+                    <Grid Margin="0,8,4,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="1" Content="Start All" Padding="12,8" 
+                            Background="#3498db" Foreground="White" FontWeight="SemiBold" 
+                            Cursor="Hand" Click="OnStartClicked" Margin="4,0,0,0"/>
+                        <Button Grid.Column="0" Content="Stop All" Padding="12,8" 
+                            Background="#e74c3c" Foreground="White" FontWeight="SemiBold" 
+                            Cursor="Hand" Click="OnStopClicked" Margin="0,0,4,0"/>
+                    </Grid>
                 </StackPanel>
 
             </StackPanel>

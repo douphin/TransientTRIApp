@@ -26,6 +26,7 @@ namespace TransientTRIApp.UI
         private readonly IGPUMonitoringService _gpuMonitor;
         private readonly IPulseGeneratorService _pulseGenerator;
         private readonly ICameraService _cameraService;
+        private readonly IThermocoupleService _thermocoupleService;
         private DateTime[] _timestamps;
         private int _dataPointCount = 0;
         private const int MaxDataPoints = 60; // Keep last 60 readings
@@ -37,10 +38,12 @@ namespace TransientTRIApp.UI
         private double _actualPulseWidth = 0;
         private double _actualLVPeak = 0;
         private long _frameCount = 0;
-        private object _frameCountLock = new object();
+        private readonly object _frameCountLock = new object();
+        private readonly int _metricSampleRate = 1000;
 
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
+        public ChartValues<double> TCTemperatureData;
 
         public MainWindow()
         {
@@ -49,12 +52,17 @@ namespace TransientTRIApp.UI
             _cameraService = new CameraService();
             _gpuMonitor = new GPUMonitoringService();
             _pulseGenerator = new PulseGeneratorService();
+            _thermocoupleService = new ThermocoupleService();
 
             _cameraService.FrameReady += OnFrameReady;
             _gpuMonitor.MetricsUpdated += OnGPUMetricsUpdated;
+            _thermocoupleService.TempReady += OnTCReadingsUpdated;
 
             InitializeChartData();
-            BindSliders();
+            BindGPUSliders();
+            BindCameraSliders();
+
+            ImageProcessing.PreProcess();
 
             this.DataContext = this;
         }
@@ -63,10 +71,11 @@ namespace TransientTRIApp.UI
         {
             GPUUtilizationData = new ChartValues<double>();
             GPUTemperatureData = new ChartValues<double>();
+            TCTemperatureData = new ChartValues<double>();
             _timestamps = new DateTime[MaxDataPoints];
         }
 
-        private void BindSliders()
+        private void BindGPUSliders()
         {
             // Trigger Rate
             TriggerRateSlider.ValueChanged += (s, e) =>
@@ -114,6 +123,41 @@ namespace TransientTRIApp.UI
             LVPeakValue.Text = LVPeakSlider.Value.ToString();
         }
 
+        private void BindCameraSliders()
+        {
+            // Exposure
+            ExposureSlider.ValueChanged += (s, e) =>
+            {
+                ExposureValue.Text = $"{ExposureSlider.Value:F1}";
+                ExposureInput.Text = ExposureSlider.Value.ToString("F1");
+
+                // Update camera exposure in real-time
+                UpdateCameraExposure(ExposureSlider.Value);
+            };
+
+            ExposureInput.TextChanged += (s, e) =>
+            {
+                if (double.TryParse(ExposureInput.Text, out double value))
+                {
+                    ExposureSlider.Value = Clamp(value, ExposureSlider.Minimum, ExposureSlider.Maximum);
+                }
+            };
+        }
+
+        private void UpdateCameraExposure(double exposureMs)
+        {
+            try
+            {
+                // Convert milliseconds to microseconds
+                double exposureUs = exposureMs * 1000;
+                _cameraService.SetExposure(exposureUs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating exposure: {ex.Message}");
+            }
+        }
+
         private double Clamp(double value, double min, double max)
         {
             if (value < min) return min;
@@ -131,7 +175,7 @@ namespace TransientTRIApp.UI
             base.OnContentRendered(e);
 
             // Setup chart series
-            var utilizationSeries = new LineSeries
+            var gpuUtilizationSeries = new LineSeries
             {
                 Title = "GPU Utilization (%)",
                 Values = GPUUtilizationData,
@@ -143,7 +187,7 @@ namespace TransientTRIApp.UI
                 
             };
 
-            var temperatureSeries = new LineSeries
+            var gpuTemperatureSeries = new LineSeries
             {
                 Title = "GPU Temperature (°C)",
                 Values = GPUTemperatureData,
@@ -156,12 +200,26 @@ namespace TransientTRIApp.UI
                 
             };
 
-            GPUChart.Series = new SeriesCollection { utilizationSeries, temperatureSeries };
+            var tcTemperatureSeries = new LineSeries
+            {
+                Title = "TC Temperature (°C)",
+                Values = TCTemperatureData,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.DarkSeaGreen,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
 
-            ReadMachineSettings();
+
+            };
+
+            GPUChart.Series = new SeriesCollection { gpuUtilizationSeries, gpuTemperatureSeries, tcTemperatureSeries };
+
+            _ = ReadMachineSettings();
 
             _cameraService.Start();
-            _gpuMonitor.Start(1000); // Start with 1 second interval   
+            _gpuMonitor.Start(_metricSampleRate); // Start with 1 second interval   
+            _thermocoupleService.Start(_metricSampleRate);
             StartTimers();
         }
 
@@ -196,7 +254,7 @@ namespace TransientTRIApp.UI
                     _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
                     if (_isHotFrameRolling)
                     {
-                        bmp = ImageProcessing.SubtractBitmapsWithEmguCV(_currentDisplayBitmap, _capturedBitmap);
+                        bmp = ImageProcessing.ProcessFrame(_currentDisplayBitmap, _capturedBitmap);
                     }
                     else
                     {
@@ -241,6 +299,16 @@ namespace TransientTRIApp.UI
             _timestamps[_dataPointCount - 1] = timestamp;
         }
 
+        public void OnTCReadingsUpdated(object sender, ThermocoupleReadings readings)
+        {
+            UI(() =>
+            {
+                TCTemperatureData.Add(readings.TCTemperature);
+                if (TCTemperatureData.Count > 60)
+                    TCTemperatureData.RemoveAt(0);
+            });
+        }
+
         private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
         {
             lock (_bitmapLock)
@@ -270,7 +338,7 @@ namespace TransientTRIApp.UI
 
         private void OnConfigurePulseGenerator(object sender, RoutedEventArgs e)
         {
-            ConfigurePulseGenerator();
+            _ = ConfigurePulseGenerator();
         }
 
         private async Task ConfigurePulseGenerator()
@@ -283,29 +351,21 @@ namespace TransientTRIApp.UI
 
                 await Task.Run(() =>
                 {
-                    MessageBox.Show($"Configuring pulse generator:\n" +
-                        $"Trigger Rate: {triggerRate:F0} Hz\n" +
-                        $"Pulse Width: {pulseWidth:E2} s\n" +
-                        $"LV Peak: {lvPeak:F2} V",
-                        "Configuration", MessageBoxButton.OK, MessageBoxImage.Information);
+                    //MessageBox.Show($"Configuring pulse generator:\n" +
+                    //    $"Trigger Rate: {triggerRate:F0} Hz\n" +
+                    //    $"Pulse Width: {pulseWidth:E2} s\n" +
+                    //    $"LV Peak: {lvPeak:F2} V",
+                    //    "Configuration", MessageBoxButton.OK, MessageBoxImage.Information);
 
                     // Uncomment when GPIB device is available:
                     _pulseGenerator.Connect("GPIB0::6::INSTR");
                     _pulseGenerator.Configure(triggerRate, pulseWidth, lvPeak);
                     _pulseGenerator.Disconnect();
 
-                    Thread.Sleep(500); // Give it a moment
-                    _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    var actualSettings = _pulseGenerator.GetCurrentSettings();
-                    _pulseGenerator.Disconnect();
-
                     // Update stored values
-                    if (actualSettings.ContainsKey("TriggerRateHz"))
-                        _actualTriggerRate = actualSettings["TriggerRateHz"];
-                    if (actualSettings.ContainsKey("PulseWidthSec"))
-                        _actualPulseWidth = actualSettings["PulseWidthSec"];
-                    if (actualSettings.ContainsKey("LVPeakV"))
-                        _actualLVPeak = actualSettings["LVPeakV"];
+                    _actualTriggerRate = _pulseGenerator.TriggerRateHz;
+                    _actualPulseWidth = _pulseGenerator.PulseWidthSec;
+                    _actualLVPeak = _pulseGenerator.LVPeakV;
                 });
 
                 // Update UI
@@ -332,15 +392,13 @@ namespace TransientTRIApp.UI
                 await Task.Run(() =>
                 {
                     _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    var settings = _pulseGenerator.GetCurrentSettings();
+                    _pulseGenerator.InitialConfiguration();
+                    _pulseGenerator.GetCurrentSettings();
                     _pulseGenerator.Disconnect();
 
-                    if (settings.ContainsKey("TriggerRateHz"))
-                        _actualTriggerRate = settings["TriggerRateHz"];
-                    if (settings.ContainsKey("PulseWidthSec"))
-                        _actualPulseWidth = settings["PulseWidthSec"];
-                    if (settings.ContainsKey("LVPeakV"))
-                        _actualLVPeak = settings["LVPeakV"];
+                    _actualTriggerRate = _pulseGenerator.TriggerRateHz;
+                    _actualPulseWidth = _pulseGenerator.PulseWidthSec;
+                    _actualLVPeak = _pulseGenerator.LVPeakV;
                 });
 
                 UpdateActualValuesDisplay();
@@ -378,6 +436,7 @@ namespace TransientTRIApp.UI
         {
             _cameraService.Stop();
             _gpuMonitor.Stop();
+            _thermocoupleService.Stop();
         }
 
         // Method to retrieve the captured bitmap (thread-safe)

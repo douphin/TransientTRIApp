@@ -32,7 +32,7 @@ public class CameraService : ICameraService, IDisposable
                 Console.WriteLine("Camera opened successfully.");
 
                 // Configure camera to match your current settings
-                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(10000.0); // 10ms
+                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(2500.0);
                 _camera.Parameters[PLCamera.GainRaw].SetValue(370);
 
                 Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
@@ -53,7 +53,7 @@ public class CameraService : ICameraService, IDisposable
                         if (grabResult != null && grabResult.GrabSucceeded)
                         {
                             // Convert grab result to bitmap
-                            bmp = ConvertGrabResultToBitmap(grabResult);
+                            bmp = ConvertGrabv2(grabResult);
 
                             if (bmp != null)
                             {
@@ -118,6 +118,56 @@ public class CameraService : ICameraService, IDisposable
         Stop();
         _cts?.Dispose();
         _disposed = true;
+    }
+
+    private Bitmap ConvertGrabv2(IGrabResult grabResult)
+    {
+        PixelDataConverter converter = new PixelDataConverter();
+        Bitmap bitmap = new Bitmap(grabResult.Width, grabResult.Height, PixelFormat.Format32bppRgb);
+
+        // Lock the bits of the bitmap.
+        
+        BitmapData bmpData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadWrite, bitmap.PixelFormat);
+        // Place the pointer to the buffer of the bitmap.
+        converter.OutputPixelFormat = PixelType.BGRA8packed;
+        IntPtr ptrBmp = bmpData.Scan0;
+
+        converter.Convert(ptrBmp, bmpData.Stride * bitmap.Height, grabResult);
+        bitmap.UnlockBits(bmpData);
+
+        return bitmap;
+    }
+
+    public void SetExposure(double exposureUs)
+    {
+        try
+        {
+            if (_camera != null && _camera.IsOpen)
+            {
+                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(exposureUs);
+                Console.WriteLine($"Exposure set to {exposureUs}us");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting exposure: {ex.Message}");
+        }
+    }
+
+    public double GetExposure()
+    {
+        try
+        {
+            if (_camera != null && _camera.IsOpen)
+            {
+                return (double)_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error getting exposure: {ex.Message}");
+        }
+        return 0;
     }
 
     private Bitmap ConvertGrabResultToBitmap(IGrabResult grabResult)

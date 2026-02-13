@@ -4,15 +4,14 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TransientTRIApp.Common.Events;
+using TransientTRIApp.Common.Models;
 
 namespace TransientTRIApp.Common.Interfaces
 {
-    public interface ICameraService
+    public interface IThermocoupleService
     {
-        event EventHandler<CameraFrameEventArgs> FrameReady;
-        void Start();
+        event EventHandler<ThermocoupleReadings> TempReady;
+        void Start(int updateIntervalMs = 1000);
         void Stop();
-        void SetExposure(double exposureUs);
-        double GetExposure();
     }
 }

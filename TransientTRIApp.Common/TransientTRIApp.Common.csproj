@@ -69,8 +69,10 @@
     <Compile Include="Interfaces\IGPUMonitoringService.cs" />
     <Compile Include="Interfaces\ICameraService.cs" />
     <Compile Include="Interfaces\IPulseGeneratorService.cs" />
+    <Compile Include="Interfaces\IThermocoupleService.cs" />
     <Compile Include="Models\CameraFrame.cs" />
     <Compile Include="Models\GPUMetrics.cs" />
+    <Compile Include="Models\ThermocoupleReadings.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
