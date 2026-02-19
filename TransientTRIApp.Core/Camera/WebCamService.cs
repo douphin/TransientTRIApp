@@ -96,6 +96,10 @@ namespace TransientTRIApp.Core.Camera
         {
             return -1;
         }
+        public void UpdateCameraFrameOffset(int newOffsetMs)
+        {
+
+        }
 
     }
 

@@ -39,7 +39,7 @@ namespace TransientTRIApp.Common
             }
         }
 
-        public static Bitmap ProcessFrame(Bitmap currentBmp, Bitmap referenceBmp)
+        public static Bitmap ProcessFrame(Bitmap darkBmp, Bitmap currentBmp, Bitmap referenceBmp)
         {
             // 1. Convert Current Frame
             UpdateMatFromBitmap(currentBmp, _matCurrent);
@@ -82,6 +82,68 @@ namespace TransientTRIApp.Common
             {
                 bmp.UnlockBits(data);
             }
+        }
+
+        private static Bitmap SubtractDarkFrame(Bitmap dark, Bitmap light)
+        {
+            return null;
+        }
+
+
+
+        public static IEnumerable<double> GetPixelValueCount(Bitmap frame)
+        {
+            double[] values = new double[256];
+            double totalPixles = frame.Width * frame.Height;
+            double perPixelPercentage = 100 / totalPixles;
+
+            for (int i = 0; i < frame.Width; i++)
+            {
+                for (int j = 0; j < frame.Height; j++)
+                {
+                    values[frame.GetPixel(i, j).R] += perPixelPercentage;
+                }
+            }
+     
+            return values;
+        }
+
+        public static double[] GetPixelValueCountv2(Bitmap frame)
+        {
+            double[] values = new double[256];
+            int totalPixels = frame.Width * frame.Height;
+            double perPixelPercentage = 100.0 / totalPixels;
+
+            // Lock the bitmap once
+            BitmapData bmpData = frame.LockBits(
+                new Rectangle(0, 0, frame.Width, frame.Height),
+                ImageLockMode.ReadOnly,
+                frame.PixelFormat);
+
+            try
+            {
+                unsafe
+                {
+                    byte* ptr = (byte*)bmpData.Scan0;
+                    int stride = bmpData.Stride;
+
+                    for (int y = 0; y < frame.Height; y++)
+                    {
+                        for (int x = 0; x < frame.Width; x++)
+                        {
+                            // For 8bpp grayscale, each pixel is 1 byte
+                            byte grayscaleValue = ptr[y * stride + x];
+                            values[grayscaleValue] += perPixelPercentage;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                frame.UnlockBits(bmpData);
+            }
+
+            return values;
         }
 
 

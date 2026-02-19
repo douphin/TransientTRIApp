@@ -71,9 +71,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Camera\CameraConfig.cs" />
     <Compile Include="Camera\CameraService.cs" />
-    <Compile Include="Camera\LabCamService_v1.cs" />
     <Compile Include="Camera\WebCamService.cs" />
     <Compile Include="GPU\GPUMonitoringService.cs" />
     <Compile Include="Hardware\PulseGeneratorService.cs" />

@@ -14,5 +14,6 @@ namespace TransientTRIApp.Common.Interfaces
         void Stop();
         void SetExposure(double exposureUs);
         double GetExposure();
+        void UpdateCameraFrameOffset(int newOffsetMs);
     }
 }

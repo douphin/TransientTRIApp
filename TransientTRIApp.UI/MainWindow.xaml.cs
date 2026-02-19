@@ -22,6 +22,7 @@ using TransientTRIApp.Core.GPU;
 using TransientTRIApp.Core.Hardware;
 using Emgu.CV.Aruco;
 using System.Diagnostics;
+using System.Linq;
 
 namespace TransientTRIApp.UI
 {
@@ -38,12 +39,17 @@ namespace TransientTRIApp.UI
         private volatile bool _isHotFrameRolling = false;
         private Bitmap _currentDisplayBitmap;
         private Bitmap _capturedBitmap;
+        private Bitmap _darkFrameBitmap;
         private double _actualTriggerRate = 0;
         private double _actualPulseWidth = 0;
         private double _actualLVPeak = 0;
         private long _frameCount = 0;
         private readonly object _frameCountLock = new object();
         private readonly int _metricSampleRate = 1000;
+
+        private DispatcherTimer _debounceTimer;
+        private const int DebounceDelayMs = 2500; // Wait 500ms after slider stops moving
+
 
         private string _recordingFolderPath;
         private StreamWriter _csvFile;
@@ -54,6 +60,9 @@ namespace TransientTRIApp.UI
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
         public ChartValues<double> TCTemperatureData;
+        public ChartValues<double> CameraExposureTiming;
+        public ChartValues<double> PulseGeneratorTiming;
+        public ChartValues<double> PixelValueCount;
 
         public MainWindow()
         {
@@ -82,6 +91,9 @@ namespace TransientTRIApp.UI
             GPUUtilizationData = new ChartValues<double>();
             GPUTemperatureData = new ChartValues<double>();
             TCTemperatureData = new ChartValues<double>();
+            CameraExposureTiming = new ChartValues<double>();
+            PulseGeneratorTiming = new ChartValues<double>();
+            PixelValueCount = new ChartValues<double>();
             _timestamps = new DateTime[MaxDataPoints];
         }
 
@@ -93,7 +105,7 @@ namespace TransientTRIApp.UI
                 TriggerRateValue.Text = $"{TriggerRateSlider.Value:F0}";
                 TriggerRateInput.Text = TriggerRateSlider.Value.ToString("F0");
             };
-            TriggerRateInput.TextChanged += (s, e) =>
+            TriggerRateInput.LostFocus += (s, e) =>
             {
                 if (double.TryParse(TriggerRateInput.Text, out double value))
                 {
@@ -108,7 +120,7 @@ namespace TransientTRIApp.UI
                 PulseWidthValue.Text = $"{PulseWidthSlider.Value:E2}";
                 PulseWidthInput.Text = PulseWidthSlider.Value.ToString("E2");
             };
-            PulseWidthInput.TextChanged += (s, e) =>
+            PulseWidthInput.LostFocus += (s, e) =>
             {
                 if (double.TryParse(PulseWidthInput.Text, out double value))
                 {
@@ -123,7 +135,7 @@ namespace TransientTRIApp.UI
                 LVPeakValue.Text = $"{LVPeakSlider.Value:F2}";
                 LVPeakInput.Text = LVPeakSlider.Value.ToString("F2");
             };
-            LVPeakInput.TextChanged += (s, e) =>
+            LVPeakInput.LostFocus += (s, e) =>
             {
                 if (double.TryParse(LVPeakInput.Text, out double value))
                 {
@@ -131,6 +143,8 @@ namespace TransientTRIApp.UI
                 }
             };
             LVPeakValue.Text = LVPeakSlider.Value.ToString();
+
+            //CalculateLEDTiming(TriggerRateSlider.Value, PulseWidthSlider.Value);
         }
 
         private void BindCameraSliders()
@@ -142,30 +156,61 @@ namespace TransientTRIApp.UI
                 ExposureInput.Text = ExposureSlider.Value.ToString("F1");
 
                 // Update camera exposure in real-time
-                UpdateCameraExposure(ExposureSlider.Value);
+                _cameraService.SetExposure(ExposureSlider.Value * 1000);
+
+                if (AdjustLED.IsChecked == true)
+                {
+                    PulseWidthSlider.Value = ExposureSlider.Value / 1000 / 2;
+                    TriggerRateSlider.Value = 1 / PulseWidthSlider.Value;
+
+                    if (SubmitLED.IsChecked == true)
+                    {
+                        _debounceTimer.Stop();
+                        _debounceTimer.Start();
+                    }
+                }
             };
 
-            ExposureInput.TextChanged += (s, e) =>
+            ExposureInput.LostFocus += (s, e) =>
             {
                 if (double.TryParse(ExposureInput.Text, out double value))
                 {
                     ExposureSlider.Value = Clamp(value, ExposureSlider.Minimum, ExposureSlider.Maximum);
                 }
             };
+
+            // Offset
+            //OffsetSlider.ValueChanged += (s, e) =>
+            //{
+            //    OffsetInput.Text = $"{OffsetSlider.Value:F1}";
+            //    OffsetInput.Text = OffsetSlider.Value.ToString("F1");
+
+            //    // Update camera offset in real-time
+            //    UpdateCameraFrameOffset((int)OffsetSlider.Value);
+            //};
+
+            //OffsetInput.TextChanged += (s, e) =>
+            //{
+            //    if (double.TryParse(OffsetInput.Text, out double value))
+            //    {
+            //        OffsetSlider.Value = Clamp(value, OffsetSlider.Minimum, OffsetSlider.Maximum);
+            //    }
+            //};
         }
 
-        private void UpdateCameraExposure(double exposureMs)
+        private void CalculateLEDTiming(double triggerRate, double pulseWidth)
         {
-            try
+            //int higherCounter = 0;
+
+            for(int i = 0; i < 100; i++)
             {
-                // Convert milliseconds to microseconds
-                double exposureUs = exposureMs * 1000;
-                _cameraService.SetExposure(exposureUs);
+                //if (i )
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating exposure: {ex.Message}");
-            }
+        }
+
+        private void UpdateCameraFrameOffset(int offset)
+        {
+            _cameraService.UpdateCameraFrameOffset(offset);
         }
 
         private double Clamp(double value, double min, double max)
@@ -218,22 +263,69 @@ namespace TransientTRIApp.UI
                 LineSmoothness = 0,
             };
 
+
+            // This is for some timing thing I started working one but abandoned
+            var cameraTiming = new LineSeries
+            {
+                Title = "Camera",
+                Values = CameraExposureTiming,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.DarkSeaGreen,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+            };
+
+            var pulseGen = new LineSeries
+            {
+                Title = "LED",
+                Values = PulseGeneratorTiming,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.OrangeRed,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+            };
+
+            //
+            var pixelValueCount = new LineSeries
+            {
+                Title = "Value Count",
+                Values = PixelValueCount,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.OrangeRed,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+            };
+
             GPUChart.Series = new SeriesCollection { gpuUtilizationSeries, gpuTemperatureSeries, tcTemperatureSeries };
+            TimingChart.Series = new SeriesCollection { cameraTiming, pulseGen };
+            PixelValueCountChart.Series = new SeriesCollection {  pixelValueCount };
 
             _ = ReadMachineSettings();
 
             _cameraService.Start();
             _gpuMonitor.Start(_metricSampleRate); // Start with 1 second interval   
             _thermocoupleService.Start(_metricSampleRate);
-            StartTimers();
+            InitializeTimers();
         }
 
-        private void StartTimers()
+        private void InitializeTimers()
         {
             System.Timers.Timer frameTimer = new System.Timers.Timer();
             frameTimer.Interval = 1000;
             frameTimer.Elapsed += FrameTimer_Elapsed;
             frameTimer.Start();
+
+            // Setup debounce timer
+            _debounceTimer = new DispatcherTimer();
+            _debounceTimer.Interval = TimeSpan.FromMilliseconds(DebounceDelayMs);
+            _debounceTimer.Tick += (s, e) =>
+            {
+                _debounceTimer.Stop();
+                _ = ConfigurePulseGenerator(); // Call your function
+            };
         }
 
         private void FrameTimer_Elapsed(object sender, ElapsedEventArgs e)
@@ -242,9 +334,29 @@ namespace TransientTRIApp.UI
             {
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    FPSCounter.Text = _frameCount.ToString();
+                    FPSCounter.Text = "FPS: " + _frameCount.ToString();
                     _frameCount = 0;
                 }));
+            }
+
+            Bitmap localBitmap = null;
+
+            lock (_bitmapLock)
+            {
+                if (_currentDisplayBitmap != null)
+                    localBitmap = (Bitmap)_currentDisplayBitmap.Clone();
+            }
+
+            if (localBitmap != null)
+            {
+                var data = ImageProcessing.GetPixelValueCount(localBitmap);
+                UI(() =>
+                {
+                    PixelValueCount.Clear();           
+                    PixelValueCount.AddRange(data);
+                    PixelValueCountChart.AxisY[0].MaxValue = data.Max();
+                    localBitmap.Dispose();
+                });
             }
         }
 
@@ -259,7 +371,7 @@ namespace TransientTRIApp.UI
                     _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
                     if (_isHotFrameRolling)
                     {
-                        bmp = ImageProcessing.ProcessFrame(_currentDisplayBitmap, _capturedBitmap);
+                        bmp = ImageProcessing.ProcessFrame(_darkFrameBitmap, _currentDisplayBitmap, _capturedBitmap);
                     }
                     else
                     {
@@ -273,6 +385,7 @@ namespace TransientTRIApp.UI
                 lock (_frameCountLock)
                 {
                     _frameCount++;
+                    Frame.Text = _frameCount.ToString();
                 }
             });
         }
@@ -355,7 +468,7 @@ namespace TransientTRIApp.UI
         {
             if (_isRecording)
             {
-                StopRecording();
+                _ = StopRecording();
             }
             else
             {
@@ -420,6 +533,26 @@ namespace TransientTRIApp.UI
             }
         }
 
+        private void OnSetDarkFrameClicked(object sender, RoutedEventArgs e)
+        {
+            lock (_bitmapLock)
+            {
+                if (_currentDisplayBitmap != null)
+                {
+                    // Dispose old captured bitmap
+                    _darkFrameBitmap?.Dispose();
+
+                    // Clone the current display bitmap for storage
+                    _darkFrameBitmap = (Bitmap)_currentDisplayBitmap.Clone();
+                    DarkFrameTime.Text = DateTime.Now.ToLongTimeString();
+                }
+                else
+                {
+                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
         private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
         {
             lock (_bitmapLock)
@@ -431,12 +564,11 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _capturedBitmap = (Bitmap)_currentDisplayBitmap.Clone();
-
-                    //MessageBox.Show("Frame captured successfully!", "Capture", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ColdFrameTime.Text = DateTime.Now.ToShortTimeString();
                 }
                 else
                 {
-                    //MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
         }
@@ -500,25 +632,10 @@ namespace TransientTRIApp.UI
         {
             try
             {
-                if (Stopwatch.IsHighResolution)
-                {
-                    Console.WriteLine("HiRes");
-                }
-                else
-                {
-                    Console.WriteLine("Nope");
-                }
-
-                long freq = Stopwatch.Frequency;
-                Console.WriteLine($"ticks per sec {freq}");
-                long nsPerTick = (1000L * 1000L * 1000L) / freq;
-                Console.WriteLine($"ns per tick{nsPerTick}");
-
-
                     await Task.Run(() =>
                     {
                         _pulseGenerator.Connect("GPIB0::6::INSTR");
-                        _pulseGenerator.InitialConfiguration();
+                        //_pulseGenerator.InitialConfiguration();
                         _pulseGenerator.GetCurrentSettings();
                         _pulseGenerator.Disconnect();
 
@@ -537,6 +654,11 @@ namespace TransientTRIApp.UI
 
                 LVPeakSlider.Value = _actualLVPeak;
                 LVPeakInput.Text = _actualLVPeak.ToString();
+
+                if (_actualPulseWidth > 0 && _actualTriggerRate > 0 && Math.Round(_actualTriggerRate * _actualPulseWidth) == 1)
+                {
+                    ExposureSlider.Value = _actualPulseWidth * 1000 * 2;
+                }
 
                 Console.WriteLine("Machine settings read successfully");
             }
@@ -620,7 +742,7 @@ namespace TransientTRIApp.UI
             }
 
             if (_isRecording)
-                StopRecording();
+                _ = StopRecording();
 
             _cameraService.Stop();
             Thread.Sleep(100);

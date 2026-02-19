@@ -202,7 +202,8 @@ namespace TransientTRIApp.Core.Hardware
             }
             catch (Exception ex)
             {
-                throw new Exception($"Failed to send query '{query}': {ex.Message}");
+                Console.WriteLine($"Failed to send query '{query}': {ex.Message}");
+                return "Error";
             }
         }
 
@@ -312,7 +313,7 @@ namespace TransientTRIApp.Core.Hardware
             catch (Exception ex)
             {
                 Console.WriteLine($"Error extracting value: {ex.Message}");
-                return 0;
+                return -1;
             }
         }
 

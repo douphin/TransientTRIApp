@@ -13,6 +13,8 @@ public class CameraService : ICameraService, IDisposable
     private MultimediaTimer _timer;
     private Camera _camera;
     private bool _disposed = false;
+    private int _offsetMs = 0;
+    private double _exposureValue = 2000.0;
 
     public event EventHandler<CameraFrameEventArgs> FrameReady;
 
@@ -33,7 +35,7 @@ public class CameraService : ICameraService, IDisposable
                 Console.WriteLine("Camera opened successfully.");
 
                 // Configure camera to match your current settings
-                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(2500.0);
+                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(_exposureValue);
                 _camera.Parameters[PLCamera.GainRaw].SetValue(370);
 
                 Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
@@ -51,94 +53,14 @@ public class CameraService : ICameraService, IDisposable
                 Console.WriteLine($"Failed to start camera {ex.Message}");
             }
         });
-        return;
-        Task.Run(() =>
-        {
-            try
-            {
-                _camera = new Camera();
-                _camera.Open();
-                Console.WriteLine("Camera opened successfully.");
-
-                // Configure camera to match your current settings
-                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(2500.0);
-                _camera.Parameters[PLCamera.GainRaw].SetValue(370);
-
-                Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
-                Console.WriteLine($"Gain set to: {_camera.Parameters[PLCamera.GainRaw].GetValue()}");
-
-                // Start continuous acquisition
-                _camera.StreamGrabber.Start();
-
-                while (!token.IsCancellationRequested)
-                {
-                    IGrabResult grabResult = null;
-                    Bitmap bmp = null;
-
-                    try
-                    {
-                        grabResult = _camera.StreamGrabber.RetrieveResult(5000, TimeoutHandling.ThrowException);
-
-                        if (grabResult != null && grabResult.GrabSucceeded)
-                        {
-                            // Convert grab result to bitmap
-                            bmp = ConvertGrabv2(grabResult);
-
-                            if (bmp != null)
-                            {
-                                // Invoke event with the bitmap
-                                FrameReady?.Invoke(this, new CameraFrameEventArgs(bmp));
-                                bmp = null; // Don't dispose here - the UI will handle it
-                            }
-                        }
-                        else if (grabResult != null)
-                        {
-                            Console.WriteLine($"Grab failed: {grabResult.ErrorDescription}");
-                        }
-
-                        // Okay so the camera can only do 20 fps, which should correspond to a 50 ms wait between frames, however, it takes about 3-4 ms to process and display the image, leaving us with a 46 ms downtime. Anything lower than 46ms, will not have effect
-                        Thread.Sleep(46); 
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error capturing frame: {ex.Message}");
-                        bmp?.Dispose();
-                    }
-                    finally
-                    {
-                        // Dispose grab result immediately to free resources
-                        grabResult?.Dispose();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Camera initialization error: {ex.Message}");
-            }
-            finally
-            {
-                Console.WriteLine("Done");
-                if (_camera != null)
-                {
-                    try
-                    {
-                        _camera.StreamGrabber.Stop();
-                        _camera.Close();
-                        _camera.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error closing camera: {ex.Message}");
-                    }
-                }
-            }
-        }, token);
     }
 
     public void GrabFrame()
     {
         IGrabResult grabResult = null;
         Bitmap bmp = null;
+
+        MultimediaTimer.PreciseWait(_offsetMs);
 
         try
         {
@@ -176,6 +98,11 @@ public class CameraService : ICameraService, IDisposable
         }
     }
 
+    public void UpdateCameraFrameOffset(int newOffsetMs)
+    {
+        _offsetMs = newOffsetMs;
+    }
+
     public void Stop()
     {
         _cts?.Cancel();
@@ -205,6 +132,8 @@ public class CameraService : ICameraService, IDisposable
         _disposed = true;
     }
 
+    // This code came from the website of the Camera
+    //  https://docs.baslerweb.com/pylonapi/net/Guide
     private Bitmap ConvertGrabv2(IGrabResult grabResult)
     {
         PixelDataConverter converter = new PixelDataConverter();
@@ -227,9 +156,10 @@ public class CameraService : ICameraService, IDisposable
     {
         try
         {
+            _exposureValue = exposureUs;
             if (_camera != null && _camera.IsOpen)
             {
-                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(exposureUs);
+                _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(_exposureValue);
                 Console.WriteLine($"Exposure set to {exposureUs}us");
             }
         }
@@ -255,6 +185,8 @@ public class CameraService : ICameraService, IDisposable
         return 0;
     }
 
+    // This path of converting results came from Claude (AI) and introduced visual artifacts
+    // That being said, this code may still be helpful if access to raw values are needed
     private Bitmap ConvertGrabResultToBitmap(IGrabResult grabResult)
     {
         try

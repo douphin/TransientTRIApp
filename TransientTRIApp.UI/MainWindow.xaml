@@ -34,6 +34,8 @@
                                VerticalAlignment="Top" HorizontalAlignment="Left" Margin="16,12"/>
                     <TextBlock  x:Name="FPSCounter" Foreground="#999" FontSize="12" 
                                VerticalAlignment="Top" HorizontalAlignment="Right" Margin="16,12"/>
+                    <TextBlock  x:Name="Frame" Foreground="#999" FontSize="12" 
+                            VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="16,12"/>
                 </Grid>
             </Border>
 
@@ -49,14 +51,47 @@
                     <!--<TextBlock Grid.Row="0" Text="GPU Monitoring" Foreground="#333" FontSize="14" FontWeight="SemiBold" Margin="16,12,16,0"/>-->
 
                     <!-- Chart Control -->
-                    <lvc:CartesianChart x:Name="GPUChart" Grid.Row="1" Margin="12" DisableAnimations="True" LegendLocation="Top">
+                    <!--<lvc:CartesianChart x:Name="GPUChart" Grid.Row="1" Margin="12" DisableAnimations="True" LegendLocation="Top">
                         <lvc:CartesianChart.AxisX>
                             <lvc:Axis Title="Sample #"/>
                         </lvc:CartesianChart.AxisX>
                         <lvc:CartesianChart.AxisY>
                             <lvc:Axis Title="Value"/>
                         </lvc:CartesianChart.AxisY>
-                    </lvc:CartesianChart>
+                    </lvc:CartesianChart>-->
+
+                    <TabControl Margin="12" Grid.Row="1">
+                        <!-- Live Metrics Tab -->
+                        <TabItem Header="Live Metrics">
+                            <lvc:CartesianChart x:Name="GPUChart" Margin="12" DisableAnimations="True" LegendLocation="Top">
+                                <lvc:CartesianChart.AxisX>
+                                    <lvc:Axis Title="Sample #"/>
+                                </lvc:CartesianChart.AxisX>
+                                <lvc:CartesianChart.AxisY>
+                                    <lvc:Axis Title="Value"/>
+                                </lvc:CartesianChart.AxisY>
+                            </lvc:CartesianChart>
+                        </TabItem>
+
+                        <!-- Timing Simulation Tab -->
+                        <TabItem Header="Timing Simulation">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <lvc:CartesianChart x:Name="TimingChart" Grid.Row="0" Margin="12" DisableAnimations="True" LegendLocation="Top">
+                                    <lvc:CartesianChart.AxisX>
+                                        <lvc:Axis Title="Time (ms)" MinValue="0" MaxValue="100"/>
+                                    </lvc:CartesianChart.AxisX>
+                                    <lvc:CartesianChart.AxisY>
+                                        <lvc:Axis Title="State" MinValue="0" MaxValue="1"/>
+                                    </lvc:CartesianChart.AxisY>
+                                </lvc:CartesianChart>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
 
                     <!-- Update Interval Control -->
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="16,0,16,12" VerticalAlignment="Center">
@@ -74,150 +109,201 @@
             </Border>
         </Grid>
 
-        <!-- Right Panel: Controls -->
-        <ScrollViewer Grid.Column="1" Grid.Row="0" Margin="12">
-            <StackPanel Margin="0">
+        <TabControl Margin="12" Grid.Column="1" Grid.Row="0">
+            <TabItem Header="Hardware">
+                <!-- Right Panel: Controls -->
+                <ScrollViewer Margin="12">
+                    <StackPanel Margin="0">
 
-                <!-- Measurements Section -->
-                <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
-                    <StackPanel>
-                        <TextBlock Text="Camera Frame Comparisons" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
-                        <Separator Background="#eee" Margin="0,0,0,8"/>
-                        <Grid Margin="0,8,4,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0" Content="Set Cold Frame" Padding="12,8" 
-                            Background="Blue" Foreground="White" FontWeight="SemiBold" 
-                            Cursor="Hand" Click="OnSetColdFrameClicked" Margin="0,0,4,8"/>
-                            <Button Grid.Column="1" Content="Start Hot Frame" Padding="12,8" x:Name="HotFrameToggle"
-                            Background="Red" Foreground="White" FontWeight="SemiBold" 
-                            Cursor="Hand" Click="OnStartHotFrameClicked" Margin="4,0,0,8"/>
-                        </Grid>
-                        <!--<StackPanel Margin="0,0,0,8">
-                            <TextBlock Text="Voltage:" Foreground="#666" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="VoltageText" FontSize="16" FontWeight="SemiBold" Foreground="#333"/>
-                        </StackPanel>
+                        <!-- Camera Settings Section -->
+                        <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Camera Settings" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
+                                <Separator Background="#eee" Margin="0,0,0,12"/>
 
-                        <StackPanel Margin="0,0,0,0">
-                            <TextBlock Text="Current:" Foreground="#666" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="CurrentText" FontSize="16" FontWeight="SemiBold" Foreground="#333"/>
+                                <!-- Exposure Time -->
+                                <StackPanel Margin="0,0,0,12" >
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Exposure Time (ms):" Foreground="#666" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" x:Name="ExposureValue" Foreground="#16a085" FontWeight="SemiBold" FontSize="12"/>
+                                    </Grid>
+                                    <Slider x:Name="ExposureSlider" Minimum="0" Maximum="20" Value="2.0" 
+                                Foreground="#16a085" IsSnapToTickEnabled="True" TickFrequency="0.1" Margin="0,0,0,6"/>
+                                    <TextBox x:Name="ExposureInput" Padding="8,4" Text="2.0" 
+                                Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
+
+                                    <Grid Margin="0, 12, 0, 0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="AdjustLED" Content="Auto Adjust LED" Grid.Column="0" IsChecked="False"/>
+                                        <CheckBox x:Name="SubmitLED" Content="Auto Submit LED" Grid.Column="1" IsChecked="False"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Frame Time Offset -->
+                                <!--<StackPanel Margin="0,0,0,12">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Frame Time Offset (ms):" Foreground="#666" FontSize="11"/>
+                                <TextBlock Grid.Column="1" x:Name="Offset" Foreground="#16a085" FontWeight="SemiBold" FontSize="12"/>
+                            </Grid>
+                            <Slider x:Name="OffsetSlider" Minimum="0" Maximum="50" Value="0" 
+                                Foreground="#16a085" IsSnapToTickEnabled="True" TickFrequency="1" Margin="0,0,0,6"/>
+                            <TextBox x:Name="OffsetInput" Padding="8,4" Text="0" 
+                                Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
                         </StackPanel>-->
-                    </StackPanel>
-                </Border>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Camera Settings Section -->
-                <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
-                    <StackPanel>
-                        <TextBlock Text="Camera Settings" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
-                        <Separator Background="#eee" Margin="0,0,0,12"/>
+                        <!-- Pulse Generator Configuration -->
+                        <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Pulse Generator" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
+                                <Separator Background="#eee" Margin="0,0,0,12"/>
 
-                        <!-- Exposure Time -->
-                        <StackPanel Margin="0,0,0,12">
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Exposure Time (ms):" Foreground="#666" FontSize="11"/>
-                                <TextBlock Grid.Column="1" x:Name="ExposureValue" Foreground="#16a085" FontWeight="SemiBold" FontSize="12"/>
-                            </Grid>
-                            <Slider x:Name="ExposureSlider" Minimum="0" Maximum="20" Value="2.5" 
-                   Foreground="#16a085" IsSnapToTickEnabled="True" TickFrequency="0.1" Margin="0,0,0,6"/>
-                            <TextBox x:Name="ExposureInput" Padding="8,4" Text="2.5" 
-                    Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Pulse Generator Configuration -->
-                <Border BorderBrush="#ddd" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
-                    <StackPanel>
-                        <TextBlock Text="Pulse Generator" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
-                        <Separator Background="#eee" Margin="0,0,0,12"/>
-
-                        <!-- Trigger Rate -->
-                        <StackPanel Margin="0,0,0,12">
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Trigger Rate (Hz):" Foreground="#666" FontSize="11"/>
-                                <TextBlock Grid.Column="1" x:Name="TriggerRateValue" Foreground="#3498db" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
-                                <TextBlock Grid.Column="2" x:Name="TriggerRateActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
-                            </Grid>
-                            <Slider x:Name="TriggerRateSlider" Minimum="100" Maximum="10000" Value="1000" 
+                                <!-- Trigger Rate -->
+                                <StackPanel Margin="0,0,0,12">
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Trigger Rate (Hz):" Foreground="#666" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" x:Name="TriggerRateValue" Foreground="#3498db" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
+                                        <TextBlock Grid.Column="2" x:Name="TriggerRateActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
+                                    </Grid>
+                                    <Slider x:Name="TriggerRateSlider" Minimum="0" Maximum="10000" Value="1000" 
                                    Foreground="#3498db" IsSnapToTickEnabled="True" TickFrequency="100" Margin="0,0,0,6"/>
-                            <TextBox x:Name="TriggerRateInput" Padding="8,4" Text="1000" 
+                                    <TextBox x:Name="TriggerRateInput" Padding="8,4" Text="1000" 
                                     Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
-                        </StackPanel>
+                                </StackPanel>
 
-                        <!-- Pulse Width -->
-                        <StackPanel Margin="0,0,0,12">
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Pulse Width (s):" Foreground="#666" FontSize="11"/>
-                                <TextBlock Grid.Column="1" x:Name="PulseWidthValue" Foreground="#9b59b6" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
-                                <TextBlock Grid.Column="2" x:Name="PulseWidthActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
-                            </Grid>
-                            <Slider x:Name="PulseWidthSlider" Minimum="0.0001" Maximum="0.01" Value="0.001" 
+                                <!-- Pulse Width -->
+                                <StackPanel Margin="0,0,0,12">
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Pulse Width (s):" Foreground="#666" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" x:Name="PulseWidthValue" Foreground="#9b59b6" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
+                                        <TextBlock Grid.Column="2" x:Name="PulseWidthActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
+                                    </Grid>
+                                    <Slider x:Name="PulseWidthSlider" Minimum="0.0001" Maximum="0.01" Value="0.001" 
                                    Foreground="#9b59b6" IsSnapToTickEnabled="True" TickFrequency="0.00001" Margin="0,0,0,6"/>
-                            <TextBox x:Name="PulseWidthInput" Padding="8,4" Text="0.001" 
+                                    <TextBox x:Name="PulseWidthInput" Padding="8,4" Text="0.001" 
                                     Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
-                        </StackPanel>
+                                </StackPanel>
 
-                        <!-- LV Peak -->
-                        <StackPanel Margin="0,0,0,0">
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="LV Peak (V):" Foreground="#666" FontSize="11"/>
-                                <TextBlock Grid.Column="1" x:Name="LVPeakValue" Foreground="#e74c3c" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
-                                <TextBlock Grid.Column="2" x:Name="LVPeakActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
-                            </Grid>
-                            <Slider x:Name="LVPeakSlider" Minimum="10" Maximum="100" Value="10" 
+                                <!-- LV Peak -->
+                                <StackPanel Margin="0,0,0,0">
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="LV Peak (V):" Foreground="#666" FontSize="11"/>
+                                        <TextBlock Grid.Column="1" x:Name="LVPeakValue" Foreground="#e74c3c" FontWeight="SemiBold" FontSize="12" Margin="0,0,20,0"/>
+                                        <TextBlock Grid.Column="2" x:Name="LVPeakActual" Foreground="#e67e22" FontSize="10" Text="(Actual: --)" FontStyle="Italic"/>
+                                    </Grid>
+                                    <Slider x:Name="LVPeakSlider" Minimum="10" Maximum="100" Value="10" 
                                    Foreground="#e74c3c" IsSnapToTickEnabled="True" TickFrequency="1" Margin="0,0,0,6"/>
-                            <TextBox x:Name="LVPeakInput" Padding="8,4" Text="10" 
+                                    <TextBox x:Name="LVPeakInput" Padding="8,4" Text="10" 
                                     Foreground="#333" Background="#f9f9f9" BorderThickness="1" BorderBrush="#ddd"/>
 
-                            <Button Content="Configure Pulse Generator" Padding="12,8" 
+                                    <Button Content="Configure Pulse Generator" Padding="12,8" 
                                 Background="#27ae60" Foreground="White" FontWeight="SemiBold" 
                                 Cursor="Hand" Click="OnConfigurePulseGenerator" Margin="0,16,4,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Control Buttons -->
-                <!-- Control Buttons -->
-                <StackPanel Margin="0,0,0,0">
-                    
-
-                    <Grid Margin="0,8,4,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="1" Content="Start All" Padding="12,8" 
+                        <!-- Control Buttons -->
+                        <StackPanel Margin="0,0,0,0">
+                            <Grid Margin="0,8,4,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="1" Content="Start All" Padding="12,8" 
                             Background="#3498db" Foreground="White" FontWeight="SemiBold" 
                             Cursor="Hand" Click="OnStartClicked" Margin="4,0,0,0"/>
-                        <Button Grid.Column="0" Content="Stop All" Padding="12,8" 
+                                <Button Grid.Column="0" Content="Stop All" Padding="12,8" 
                             Background="#e74c3c" Foreground="White" FontWeight="SemiBold" 
                             Cursor="Hand" Click="OnStopClicked" Margin="0,0,4,0"/>
+                            </Grid>
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Image">
+                <ScrollViewer Margin="12">
+                    <Grid Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="2*"/>
+                        </Grid.RowDefinitions>
+                        <!-- Hot/Cold Frame Section -->
+                        <Border BorderBrush="#ddd" Grid.Row="0" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Camera Frame Comparisons" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
+                                <Separator Background="#eee" Margin="0,0,0,8"/>
+                                <Grid Margin="0,8,4,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Button Grid.Column="0" Grid.Row="0" Content="Set Dark Frame" Padding="12,8" x:Name="DarkFrameToggle"
+                                Background="Black" Foreground="White" FontWeight="SemiBold" 
+                                Cursor="Hand" Click="OnSetDarkFrameClicked" Margin="0,0,4,8"/>
+                                    <Button Grid.Column="1" Grid.Row="0" Content="Set Cold Frame" Padding="12,8" 
+                                Background="Blue" Foreground="White" FontWeight="SemiBold" 
+                                Cursor="Hand" Click="OnSetColdFrameClicked" Margin="4,0,4,8"/>
+                                    <Button Grid.Column="2" Grid.Row="0" Content="Start Hot Frame" Padding="12,8" x:Name="HotFrameToggle"
+                                Background="Red" Foreground="White" FontWeight="SemiBold" 
+                                Cursor="Hand" Click="OnStartHotFrameClicked" Margin="4,0,0,8"/>
+                                    <TextBlock x:Name="DarkFrameTime" Grid.Column="0" Grid.Row="1" 
+                                               Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                    <TextBlock x:Name="ColdFrameTime" Grid.Column="1" Grid.Row="1" 
+                                               Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border BorderBrush="#ddd" Grid.Row="1" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <lvc:CartesianChart x:Name="PixelValueCountChart" Margin="12" Height="300" DisableAnimations="True" LegendLocation="Top">
+                                    <lvc:CartesianChart.AxisX>
+                                        <lvc:Axis Title="Pixel Value" MinValue="0" MaxValue="255"/>
+                                    </lvc:CartesianChart.AxisX>
+                                    <lvc:CartesianChart.AxisY>
+                                        <lvc:Axis Title="Pixel Count (%)" MinValue="0" MaxValue="100"/>
+                                    </lvc:CartesianChart.AxisY>
+                                </lvc:CartesianChart>
+                            </StackPanel>
+                        </Border>
                     </Grid>
-                </StackPanel>
-
-            </StackPanel>
-        </ScrollViewer>
-
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Window>
