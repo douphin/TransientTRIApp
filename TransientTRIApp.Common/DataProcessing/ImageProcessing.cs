@@ -7,7 +7,10 @@ using System.Text;
 using System.Threading.Tasks;
 using Emgu.CV;
 using Emgu.CV.CvEnum;
+using Emgu.CV.Structure;
+using OpenCvSharp;
 using TransientTRIApp.Common.Models;
+using Mat = Emgu.CV.Mat;
 
 namespace TransientTRIApp.Common
 {
@@ -28,8 +31,16 @@ namespace TransientTRIApp.Common
         private static Mat _matNormalized = new Mat();
         private static Mat _matColorMap = new Mat();
 
+        private static Mat _returnedBitmap = new Mat();
+
         // 1. Pre-calculate the Jet Palette ONCE at startup
         private static Mat _jetLUT = new Mat(1, 256, DepthType.Cv8U, 3);
+
+        private static MCvScalar _green = new MCvScalar(0, 255, 0);
+        private static MCvScalar _red = new MCvScalar(0, 0, 255);
+        private static MCvScalar _blue = new MCvScalar(255, 0, 0);
+        private static MCvScalar _yellow = new MCvScalar(0, 255, 255);
+        private static MCvScalar _white = new MCvScalar(255, 255, 255);
 
         public static void PreProcess()
         {
@@ -49,6 +60,19 @@ namespace TransientTRIApp.Common
         public static Bitmap ProcessFrame(CameraFrame cf)
         {
             UpdateMatFromBitmap(cf.Frame, _matHot);
+
+            _returnedBitmap = ComputeChange(cf);
+
+            if (cf.roi != null)
+                CvInvoke.Rectangle(_returnedBitmap, cf.roi, _red, 2);
+
+            return _returnedBitmap.ToBitmap();
+        }
+
+        public static Mat ComputeChange(CameraFrame cf)
+        {
+            if (cf.IsHotFrameRolling == false)
+                return _matHot;
 
             if (cf.SubtractDarkFrame)
             {
@@ -71,6 +95,7 @@ namespace TransientTRIApp.Common
             else
                 _matResultDivided = _matResultSubtracted;
 
+            // TODO apply cf.ColdFrameTCReading
             if (cf.ScaleByTemperature)
                 _matResultTempScaled = _matResultDivided * (cf.AdHocFactor / cf.Coefficient);
             else
@@ -86,7 +111,7 @@ namespace TransientTRIApp.Common
             if (cf.ApplyColorMap)
                 CvInvoke.ApplyColorMap(_matNormalized, _matColorMap, Emgu.CV.CvEnum.ColorMapType.Jet);
 
-            return _matColorMap.ToBitmap();
+            return _matColorMap;
         }
 
         private static void UpdateMatFromBitmap(Bitmap bmp, Mat targetMat)

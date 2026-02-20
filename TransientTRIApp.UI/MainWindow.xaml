@@ -29,7 +29,14 @@
                 <Grid>
                     <Image x:Name="CameraImage"
                            Stretch="Uniform"
-                           RenderOptions.BitmapScalingMode="HighQuality" />
+                           RenderOptions.BitmapScalingMode="HighQuality" 
+                           MouseEnter="CameraImage_MouseEnter"
+                           MouseLeave="CameraImage_MouseLeave"
+                           MouseLeftButtonDown="CameraImage_MouseLeftButtonDown"
+                           MouseLeftButtonUp="CameraImage_MouseLeftButtonUp"
+                           MouseRightButtonDown="CameraImage_MouseRightButtonDown"
+                           MouseMove="CameraImage_MouseMove"
+                           />
                     <TextBlock Text="Camera Feed" Foreground="#999" FontSize="12" 
                                VerticalAlignment="Top" HorizontalAlignment="Left" Margin="16,12"/>
                     <TextBlock  x:Name="FPSCounter" Foreground="#999" FontSize="12" 

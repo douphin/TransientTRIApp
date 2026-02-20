@@ -24,6 +24,15 @@ using Emgu.CV.Aruco;
 using System.Diagnostics;
 using System.Linq;
 
+/*
+ * TODO:
+ * Add packet saving
+ * use meanshift for image alignment
+ * Add Calibration settings
+ *  -communicate with stage
+ *  -set temperature and take frames
+ */
+
 namespace TransientTRIApp.UI
 {
     public partial class MainWindow : Window
@@ -35,12 +44,13 @@ namespace TransientTRIApp.UI
         private DateTime[] _timestamps;
         private int _dataPointCount = 0;
         private const int MaxDataPoints = 60; // Keep last 60 readings
-        private object _bitmapLock = new object();
-        private Mutex _bitmapMutex = new Mutex();
+        //private object _bitmapLock = new object();
+        private readonly Mutex _bitmapMutex = new Mutex();
         private volatile bool _isHotFrameRolling = false;
         private Bitmap _currentDisplayBitmap;
         private Bitmap _capturedBitmap;
         private Bitmap _darkFrameBitmap;
+        private double _tcReadingForCapturedBitmap;
         private double _actualTriggerRate = 0;
         private double _actualPulseWidth = 0;
         private double _actualLVPeak = 0;
@@ -56,8 +66,17 @@ namespace TransientTRIApp.UI
         private string _recordingFolderPath;
         private StreamWriter _csvFile;
         private volatile bool _isRecording = false;
-        private object _csvModelLock = new object();
+        private readonly object _csvModelLock = new object();
         private System.Collections.Generic.Dictionary<string, CombinedMetrics> _csvModel = new System.Collections.Generic.Dictionary<string, CombinedMetrics>();
+
+        private Rectangle _drawnRect;
+        private Rectangle _draggingRect;
+        private int _startX;
+        private int _startY;
+        private bool _isDraggingROI;
+        private double _elementImageScaleRateX = -1;
+        private double _elementImageScaleRateY = -1;
+
 
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
@@ -379,13 +398,16 @@ namespace TransientTRIApp.UI
                 {
                     Frame = null,
                     CaptureTime = DateTime.Now,
+                    IsHotFrameRolling = _isHotFrameRolling,
                     RecentTCReading = TCTemperatureData.LastOrDefault(),
+                    ColdFrameTCReading = _tcReadingForCapturedBitmap,
                     SubtractDarkFrame = SubtractDarkFrame.IsChecked == true,
                     DivideByColdFrame = DivideByColdFrame.IsChecked == true,
                     ScaleByTemperature = ScaleByTemperature.IsChecked == true,
                     TrackROI = false,
                     NormalizeBeforeMap = true,
                     ApplyColorMap = true,
+                    roi = _isDraggingROI ? _draggingRect : _drawnRect
                 };
                  
                 if (double.TryParse(Coefficient.Text, out double coe))
@@ -394,23 +416,31 @@ namespace TransientTRIApp.UI
                     cf.Coefficient = adhoc;
 
                 // Store the current bitmap temporarily
-                _bitmapMutex.WaitOne();
+                try
                 {
-                    _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
-
-                    if (_isHotFrameRolling)
+                    _bitmapMutex.WaitOne();
                     {
+                        _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
+
                         cf.Frame = (Bitmap)_currentDisplayBitmap.Clone();
-                        bmp = ImageProcessing.ProcessFrame(cf);                
-                    }
-                    else
-                    {
-                        bmp = e.Bmp;
-                    }
+                        bmp = ImageProcessing.ProcessFrame(cf);
+ 
+                        cf.Dispose();
 
-                    cf.Dispose();
+                        if (_elementImageScaleRateX == -1 && _frameCount > 10)
+                        {
+                            _elementImageScaleRateX = _currentDisplayBitmap.Width / CameraImage.ActualWidth;
+                            _elementImageScaleRateY = _currentDisplayBitmap.Height / CameraImage.ActualHeight;
+                        }       
+
+                    }
+                    _bitmapMutex.ReleaseMutex();
                 }
-                _bitmapMutex.ReleaseMutex();
+                catch (ObjectDisposedException ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    return;
+                }
 
                 // This should really only be true just after program startup, to autofill the darkframe
                 if (_darkFrameBitmap == null && _frameCount > 10)
@@ -418,6 +448,8 @@ namespace TransientTRIApp.UI
                     SetDarkFrame();
                     StartLED();
                 }
+
+                
 
                 // Display it as before
                 CameraImage.Source = ConvertBitmap(bmp);
@@ -559,13 +591,14 @@ namespace TransientTRIApp.UI
        
                 _csvFile?.Close();
                 _csvFile?.Dispose();
+                _csvModel = new System.Collections.Generic.Dictionary<string, CombinedMetrics>();
 
                 RecordingToggleButton.Content = "Start Recording";
                 RecordingToggleButton.Background = System.Windows.Media.Brushes.LimeGreen;
                 RecordingFolderDisplay.Text = RecordingFolderDisplay.Text.Replace(" [RECORDING]", "");
 
                 Console.WriteLine("Recording stopped");
-                MessageBox.Show("Recording stopped!", "Recording Stopped", MessageBoxButton.OK, MessageBoxImage.Information);
+                //MessageBox.Show("Recording stopped!", "Recording Stopped", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -575,7 +608,7 @@ namespace TransientTRIApp.UI
 
         private void SetDarkFrame()
         {
-            lock (_bitmapLock)
+            _bitmapMutex.WaitOne();
             {
                 if (_currentDisplayBitmap != null)
                 {
@@ -592,11 +625,12 @@ namespace TransientTRIApp.UI
                     MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
+            _bitmapMutex.ReleaseMutex();
         }
 
         private void SetColdFrame()
         {
-            lock (_bitmapLock)
+            _bitmapMutex.WaitOne();
             {
                 if (_currentDisplayBitmap != null)
                 {
@@ -605,6 +639,7 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _capturedBitmap = (Bitmap)_currentDisplayBitmap.Clone();
+                    _tcReadingForCapturedBitmap = TCTemperatureData.LastOrDefault();
                     ImageProcessing.SetNewMatRefCold( _capturedBitmap );
                     ColdFrameTime.Text = DateTime.Now.ToLongTimeString();
                 }
@@ -613,6 +648,7 @@ namespace TransientTRIApp.UI
                     MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
+            _bitmapMutex.ReleaseMutex();
         }
 
         private void StartHotFrame()
@@ -910,6 +946,51 @@ namespace TransientTRIApp.UI
         private void OnStopAllClicked(object sender, RoutedEventArgs e)
         {
             StopAll();
+        }
+
+        private void CameraImage_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            CameraImage.Cursor = System.Windows.Input.Cursors.Cross;
+        }
+
+        private void CameraImage_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            CameraImage.Cursor = System.Windows.Input.Cursors.Arrow;
+            _isDraggingROI = false;
+        }
+
+        private void CameraImage_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var XY = e.GetPosition(CameraImage);
+
+            _startX = (int)XY.X;
+            _startY = (int)XY.Y;
+            _isDraggingROI = true;
+            _draggingRect = new Rectangle((int)(_startX * _elementImageScaleRateX),(int)(_startY * _elementImageScaleRateY), 0, 0);
+        }
+
+        private void CameraImage_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (_isDraggingROI == false)
+                return;
+
+            _isDraggingROI = false;
+            _drawnRect = _draggingRect;
+        }
+
+        private void CameraImage_MouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _isDraggingROI = false;
+        }
+
+        private void CameraImage_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if ( _isDraggingROI )
+            {
+                var XY = e.GetPosition(CameraImage);
+                _draggingRect.Width = (int)(_elementImageScaleRateX * XY.X - _draggingRect.X);
+                _draggingRect.Height = (int)(_elementImageScaleRateY * XY.Y - _draggingRect.Y);
+            }
         }
     }
 }

@@ -12,6 +12,8 @@ namespace TransientTRIApp.Common.Models
         public Bitmap Frame { get; set; }
         public DateTime CaptureTime { get; set; }
         public double RecentTCReading { get; set; }
+        public double ColdFrameTCReading { get; set; }
+        public bool IsHotFrameRolling { get; set; }
         public bool SubtractDarkFrame { get; set; }
         public bool TrackROI { get; set; }
         public bool DivideByColdFrame { get; set; }
@@ -20,6 +22,7 @@ namespace TransientTRIApp.Common.Models
         public bool ApplyColorMap { get; set; }
         public double Coefficient {  get; set; }
         public double AdHocFactor { get; set; }
+        public Rectangle roi {  get; set; }
 
         public void Dispose()
         {
