@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Emgu.CV;
 using Emgu.CV.CvEnum;
+using TransientTRIApp.Common.Models;
 
 namespace TransientTRIApp.Common
 {
@@ -14,9 +15,15 @@ namespace TransientTRIApp.Common
     {
 
         // Class-level variables to prevent GC pressure at 30 FPS
-        private static Mat _matRef = new Mat();
-        private static Mat _matCurrent = new Mat();
-        private static Mat _matResult = new Mat();
+        private static Mat _matDark = new Mat();
+        private static Mat _matCold = new Mat();
+        private static Mat _matHot = new Mat();
+        private static Mat _matColdPrime = new Mat();
+        private static Mat _matHotPrime = new Mat();
+        private static Mat _matHotDoublePrime = new Mat();
+        private static Mat _matResultSubtracted = new Mat();
+        private static Mat _matResultDivided = new Mat();
+        private static Mat _matResultTempScaled = new Mat();
         private static Mat _matGray = new Mat();
         private static Mat _matNormalized = new Mat();
         private static Mat _matColorMap = new Mat();
@@ -39,29 +46,45 @@ namespace TransientTRIApp.Common
             }
         }
 
-        public static Bitmap ProcessFrame(Bitmap darkBmp, Bitmap currentBmp, Bitmap referenceBmp)
+        public static Bitmap ProcessFrame(CameraFrame cf)
         {
-            // 1. Convert Current Frame
-            UpdateMatFromBitmap(currentBmp, _matCurrent);
+            UpdateMatFromBitmap(cf.Frame, _matHot);
 
-            // 2. Convert Reference Frame (Only if size changed or first run)
-            if (_matRef.IsEmpty || _matRef.Size != _matCurrent.Size || _matRef.NumberOfChannels != _matCurrent.NumberOfChannels)
+            if (cf.SubtractDarkFrame)
             {
-                UpdateMatFromBitmap(referenceBmp, _matRef);
+                CvInvoke.Subtract(_matHot, _matDark, _matHotPrime);
+                CvInvoke.Subtract(_matHotPrime, _matColdPrime, _matResultSubtracted);
+
+                // Possible Solution for tracking ROI https://docs.opencv.org/4.x/df/def/tutorial_js_meanshift.html
+                //if (true)
+                //{
+                //    CvInvoke.MeanShift(_matHotPrime, )
+                //}
+            }
+            else
+            {
+                CvInvoke.Subtract(_matHot, _matCold, _matResultSubtracted);
             }
 
-            // 3. Subtract
-            // This will now work because UpdateMatFromBitmap ensures identical layouts
-            CvInvoke.Subtract(_matCurrent, _matRef, _matResult);
+            if (cf.DivideByColdFrame)
+                CvInvoke.Divide(_matResultSubtracted, _matColdPrime, _matResultDivided);
+            else
+                _matResultDivided = _matResultSubtracted;
 
-            // 4. Processing Pipeline
-            CvInvoke.CvtColor(_matResult, _matGray, ColorConversion.Bgra2Gray);
-            CvInvoke.Normalize(_matGray, _matNormalized, 0, 255, NormType.MinMax, DepthType.Cv8U);
-            CvInvoke.ApplyColorMap(_matNormalized, _matColorMap, Emgu.CV.CvEnum.ColorMapType.Jet);
+            if (cf.ScaleByTemperature)
+                _matResultTempScaled = _matResultDivided * (cf.AdHocFactor / cf.Coefficient);
+            else
+                _matResultTempScaled = _matResultDivided;
 
-            // 2. In your 30 FPS loop, use CvInvoke.LUT instead
-            // This is significantly faster than calling ApplyColorMap every frame
+            CvInvoke.CvtColor(_matResultDivided, _matGray, ColorConversion.Bgra2Gray);
+
+            if (cf.NormalizeBeforeMap)
+                CvInvoke.Normalize(_matGray, _matNormalized, 0, 255, NormType.MinMax, DepthType.Cv8U);
+
+            // Theoretically we could use a LUT which would be quicked instead of doing ApplyColorMap() every time, but I can't get it to work so maybe if speed is an issue in the future take another look
             //CvInvoke.LUT(_matNormalized, _jetLUT, _matColorMap);
+            if (cf.ApplyColorMap)
+                CvInvoke.ApplyColorMap(_matNormalized, _matColorMap, Emgu.CV.CvEnum.ColorMapType.Jet);
 
             return _matColorMap.ToBitmap();
         }
@@ -77,6 +100,7 @@ namespace TransientTRIApp.Common
                 {
                     temp.CopyTo(targetMat); // This updates the class-level Mat memory
                 }
+                //targetMat = new Mat(bmp.Height, bmp.Width, DepthType.Cv8U, 4, data.Scan0, data.Stride);
             }
             finally
             {
@@ -84,12 +108,13 @@ namespace TransientTRIApp.Common
             }
         }
 
-        private static Bitmap SubtractDarkFrame(Bitmap dark, Bitmap light)
+        private void ProcessingStep(Action<Mat, Mat> action, bool shouldRun)
         {
-            return null;
+            if (shouldRun)
+            {
+
+            }
         }
-
-
 
         public static IEnumerable<double> GetPixelValueCount(Bitmap frame)
         {
@@ -146,7 +171,20 @@ namespace TransientTRIApp.Common
             return values;
         }
 
+        public static void SetNewMatRefCold(Bitmap frame)
+        {
+            _matCold?.Dispose();
+            _matCold = new Mat();
+            UpdateMatFromBitmap(frame, _matCold);
+            CvInvoke.Subtract(_matCold, _matDark, _matColdPrime);
+        }
 
+        public static void SetNewMatRefDark(Bitmap frame)
+        {
+            _matDark?.Dispose();
+            _matDark = new Mat();
+            UpdateMatFromBitmap(frame, _matDark);
+        }
 
 
         public static Bitmap SubtractBitmapsWithEmguCV(Bitmap bmp1, Bitmap bmp2)

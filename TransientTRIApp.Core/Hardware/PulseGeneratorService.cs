@@ -127,6 +127,35 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
+        public void SendSingleCycle()
+        {
+            try
+            {
+                SendCommand("TR SC");
+                Console.WriteLine("Sent: TR SC");
+                Thread.Sleep(_commandDelayMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Could Not Send Single Cycle: {ex.Message}");
+            }
+        }
+
+        public void SendTriggerRate()
+        {
+            try
+            {
+                string trInCommand = string.Format("TR IN {0:e4} HZ;", TriggerRateHz);
+                SendCommand(trInCommand);
+                Console.WriteLine($"Sent: {trInCommand}");
+                Thread.Sleep(_commandDelayMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Could Not Send Trigger Rate: {ex.Message}");
+            }
+        }
+
         public void GetCurrentSettings()
         {
             if (!_connected)

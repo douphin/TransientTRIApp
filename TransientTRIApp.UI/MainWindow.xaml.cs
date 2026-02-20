@@ -36,6 +36,7 @@ namespace TransientTRIApp.UI
         private int _dataPointCount = 0;
         private const int MaxDataPoints = 60; // Keep last 60 readings
         private object _bitmapLock = new object();
+        private Mutex _bitmapMutex = new Mutex();
         private volatile bool _isHotFrameRolling = false;
         private Bitmap _currentDisplayBitmap;
         private Bitmap _capturedBitmap;
@@ -50,6 +51,7 @@ namespace TransientTRIApp.UI
         private DispatcherTimer _debounceTimer;
         private const int DebounceDelayMs = 2500; // Wait 500ms after slider stops moving
 
+        private readonly System.Timers.Timer _frameTimer = new System.Timers.Timer();
 
         private string _recordingFolderPath;
         private StreamWriter _csvFile;
@@ -313,10 +315,9 @@ namespace TransientTRIApp.UI
 
         private void InitializeTimers()
         {
-            System.Timers.Timer frameTimer = new System.Timers.Timer();
-            frameTimer.Interval = 1000;
-            frameTimer.Elapsed += FrameTimer_Elapsed;
-            frameTimer.Start();
+            _frameTimer.Interval = 1000;
+            _frameTimer.Elapsed += FrameTimer_Elapsed;
+            _frameTimer.Start();
 
             // Setup debounce timer
             _debounceTimer = new DispatcherTimer();
@@ -330,6 +331,22 @@ namespace TransientTRIApp.UI
 
         private void FrameTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
+            Bitmap localBitmap = null;
+
+            _bitmapMutex.WaitOne();
+            {
+                try
+                {
+                    if (_currentDisplayBitmap != null)
+                        localBitmap = (Bitmap)_currentDisplayBitmap?.Clone();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
+            }
+            _bitmapMutex.ReleaseMutex();
+
             lock (_frameCountLock)
             {
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -337,14 +354,6 @@ namespace TransientTRIApp.UI
                     FPSCounter.Text = "FPS: " + _frameCount.ToString();
                     _frameCount = 0;
                 }));
-            }
-
-            Bitmap localBitmap = null;
-
-            lock (_bitmapLock)
-            {
-                if (_currentDisplayBitmap != null)
-                    localBitmap = (Bitmap)_currentDisplayBitmap.Clone();
             }
 
             if (localBitmap != null)
@@ -365,18 +374,49 @@ namespace TransientTRIApp.UI
             UI(() =>
             {
                 Bitmap bmp;
+
+                CameraFrame cf = new CameraFrame
+                {
+                    Frame = null,
+                    CaptureTime = DateTime.Now,
+                    RecentTCReading = TCTemperatureData.LastOrDefault(),
+                    SubtractDarkFrame = SubtractDarkFrame.IsChecked == true,
+                    DivideByColdFrame = DivideByColdFrame.IsChecked == true,
+                    ScaleByTemperature = ScaleByTemperature.IsChecked == true,
+                    TrackROI = false,
+                    NormalizeBeforeMap = true,
+                    ApplyColorMap = true,
+                };
+                 
+                if (double.TryParse(Coefficient.Text, out double coe))
+                    cf.Coefficient = coe;
+                if (double.TryParse(Coefficient.Text, out double adhoc))
+                    cf.Coefficient = adhoc;
+
                 // Store the current bitmap temporarily
-                lock (_bitmapLock)
+                _bitmapMutex.WaitOne();
                 {
                     _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
+
                     if (_isHotFrameRolling)
                     {
-                        bmp = ImageProcessing.ProcessFrame(_darkFrameBitmap, _currentDisplayBitmap, _capturedBitmap);
+                        cf.Frame = (Bitmap)_currentDisplayBitmap.Clone();
+                        bmp = ImageProcessing.ProcessFrame(cf);                
                     }
                     else
                     {
                         bmp = e.Bmp;
                     }
+
+                    cf.Dispose();
+                }
+                _bitmapMutex.ReleaseMutex();
+
+                // This should really only be true just after program startup, to autofill the darkframe
+                if (_darkFrameBitmap == null && _frameCount > 10)
+                {
+                    SetDarkFrame();
+                    StartLED();
                 }
 
                 // Display it as before
@@ -450,7 +490,7 @@ namespace TransientTRIApp.UI
         }
 
 
-        private void OnSelectRecordingFolder(object sender, RoutedEventArgs e)
+        private void SelectRecordingFolder()
         {
             var dialog = new System.Windows.Forms.FolderBrowserDialog();
             dialog.Description = "Select folder to save recording data";
@@ -464,7 +504,7 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnToggleRecording(object sender, RoutedEventArgs e)
+        private void ToggleRecording()
         {
             if (_isRecording)
             {
@@ -533,7 +573,7 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnSetDarkFrameClicked(object sender, RoutedEventArgs e)
+        private void SetDarkFrame()
         {
             lock (_bitmapLock)
             {
@@ -544,6 +584,7 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _darkFrameBitmap = (Bitmap)_currentDisplayBitmap.Clone();
+                    ImageProcessing.SetNewMatRefDark(_darkFrameBitmap);
                     DarkFrameTime.Text = DateTime.Now.ToLongTimeString();
                 }
                 else
@@ -553,7 +594,7 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
+        private void SetColdFrame()
         {
             lock (_bitmapLock)
             {
@@ -564,7 +605,8 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _capturedBitmap = (Bitmap)_currentDisplayBitmap.Clone();
-                    ColdFrameTime.Text = DateTime.Now.ToShortTimeString();
+                    ImageProcessing.SetNewMatRefCold( _capturedBitmap );
+                    ColdFrameTime.Text = DateTime.Now.ToLongTimeString();
                 }
                 else
                 {
@@ -573,10 +615,44 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnStartHotFrameClicked(object sender, RoutedEventArgs e)
+        private void StartHotFrame()
         {
             _isHotFrameRolling = !_isHotFrameRolling;
             HotFrameToggle.Content = _isHotFrameRolling ? "Pause Hot Frame" : "Start Hot Frame";
+        }
+
+        private void PauseLED()
+        {
+            try
+            {
+                Task.Run(() =>
+                {
+                    _pulseGenerator.Connect("GPIB0::6::INSTR");
+                    _pulseGenerator.SendSingleCycle();
+                    _pulseGenerator.Disconnect();
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error Connecting and Sending Single Cycle {ex.Message}");
+            }
+        }
+
+        private void StartLED()
+        {
+            try
+            {
+                Task.Run(() =>
+                {
+                    _pulseGenerator.Connect("GPIB0::6::INSTR");
+                    _pulseGenerator.SendTriggerRate();
+                    _pulseGenerator.Disconnect();
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error Connecting and Sending Single Cycle {ex.Message}");
+            }
         }
 
         private void OnConfigurePulseGenerator(object sender, RoutedEventArgs e)
@@ -594,12 +670,6 @@ namespace TransientTRIApp.UI
 
                 await Task.Run(() =>
                 {
-                    //MessageBox.Show($"Configuring pulse generator:\n" +
-                    //    $"Trigger Rate: {triggerRate:F0} Hz\n" +
-                    //    $"Pulse Width: {pulseWidth:E2} s\n" +
-                    //    $"LV Peak: {lvPeak:F2} V",
-                    //    "Configuration", MessageBoxButton.OK, MessageBoxImage.Information);
-
                     // Uncomment when GPIB device is available:
                     _pulseGenerator.Connect("GPIB0::6::INSTR");
                     _pulseGenerator.Configure(triggerRate, pulseWidth, lvPeak);
@@ -635,7 +705,7 @@ namespace TransientTRIApp.UI
                     await Task.Run(() =>
                     {
                         _pulseGenerator.Connect("GPIB0::6::INSTR");
-                        //_pulseGenerator.InitialConfiguration();
+                        _pulseGenerator.InitialConfiguration();
                         _pulseGenerator.GetCurrentSettings();
                         _pulseGenerator.Disconnect();
 
@@ -668,7 +738,7 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnUpdateIntervalApply(object sender, RoutedEventArgs e)
+        private void UpdateInterval()
         {
             if (int.TryParse(UpdateIntervalBox.Text, out int intervalMs))
             {
@@ -682,36 +752,41 @@ namespace TransientTRIApp.UI
             }
         }
 
-        private void OnStartClicked(object sender, RoutedEventArgs e)
+        private void StartAll()
         {
             _frameCount = 0;
             FPSCounter.Text = "0";
 
             _cameraService.Start();
             _gpuMonitor.Start(1000);
+            _frameTimer.Start();
         }
 
-        private void OnStopClicked(object sender, RoutedEventArgs e)
+        private void StopAll()
         {
             _cameraService.Stop();
             _gpuMonitor.Stop();
             _thermocoupleService.Stop();
+            _frameTimer.Stop();
         }
 
         // Method to retrieve the captured bitmap (thread-safe)
         public Bitmap GetCapturedBitmap()
         {
-            lock (_bitmapLock)
+            Bitmap temp;
+            _bitmapMutex.WaitOne();
             {
                 // Return a clone so caller doesn't accidentally dispose it
-                return _capturedBitmap?.Clone() as Bitmap;
+                temp = _capturedBitmap?.Clone() as Bitmap;
             }
+            _bitmapMutex.ReleaseMutex();
+            return temp;
         }
 
         // Method to save captured bitmap to file
         public void SaveCapturedBitmapToFile(string filePath)
         {
-            lock (_bitmapLock)
+            _bitmapMutex.WaitOne();
             {
                 if (_capturedBitmap != null)
                 {
@@ -730,24 +805,29 @@ namespace TransientTRIApp.UI
                     Console.WriteLine("No captured bitmap to save");
                 }
             }
+            _bitmapMutex.ReleaseMutex();
         }
 
         // Clean up when window closes
         protected override void OnClosed(EventArgs e)
         {
-            lock (_bitmapLock)
-            {
-                _capturedBitmap?.Dispose();
-                _currentDisplayBitmap?.Dispose();
-            }
-
-            if (_isRecording)
-                _ = StopRecording();
-
+            _frameTimer.Stop();
             _cameraService.Stop();
             Thread.Sleep(100);
             _gpuMonitor.Stop();
             Thread.Sleep(100);
+
+            _bitmapMutex.WaitOne();
+            {
+                _capturedBitmap?.Dispose();
+                _currentDisplayBitmap?.Dispose();
+            }
+            _bitmapMutex.ReleaseMutex();
+            _bitmapMutex.Dispose();
+
+            if (_isRecording)
+                _ = StopRecording();
+
             base.OnClosed(e);
         }
 
@@ -771,6 +851,65 @@ namespace TransientTRIApp.UI
                 DeleteObject(hBitmap);
                 bitmap.Dispose();
             }
+        }
+
+
+        // Button Handlers
+        // If you bake logic directly into the button handler, it can be hard to call that function elsewhere so wer separate them a bit
+
+        private void OnSelectRecordingFolderClicked(object sender, RoutedEventArgs e)
+        {
+            SelectRecordingFolder();
+        }
+
+        private void OnToggleRecordingClicked(object sender, RoutedEventArgs e)
+        {
+            ToggleRecording();
+        }
+
+        private void OnSetDarkFrameClicked(object sender, RoutedEventArgs e)
+        {
+            SetDarkFrame();
+        }
+
+        private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
+        {
+            SetColdFrame();
+        }
+
+        private void OnStartHotFrameClicked(object sender, RoutedEventArgs e)
+        {
+            StartHotFrame();
+        }
+
+        private void OnPauseLEDClicked(object sender, RoutedEventArgs e)
+        {
+            PauseLED();
+        }
+
+        private void OnStartLEDClicked(object sender, RoutedEventArgs e)
+        {
+            StartLED();
+        }
+
+        private void OnConfigurePulseGeneratorClicked(object sender, RoutedEventArgs e)
+        {
+            _ = ConfigurePulseGenerator();
+        }
+
+        private void OnUpdateIntervalClicked(object sender, RoutedEventArgs e)
+        {
+            UpdateInterval();
+        }
+
+        private void OnStartAllClicked(object sender, RoutedEventArgs e)
+        {
+            StartAll();
+        }
+
+        private void OnStopAllClicked(object sender, RoutedEventArgs e)
+        {
+            StopAll();
         }
     }
 }

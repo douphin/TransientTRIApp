@@ -15,6 +15,8 @@ namespace TransientTRIApp.Common.Interfaces
         void Connect(string gpibAddress);
         void InitialConfiguration();
         void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV);
+        void SendTriggerRate();
+        void SendSingleCycle();
         void Disconnect();
         void GetCurrentSettings();
     }

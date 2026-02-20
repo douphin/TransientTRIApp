@@ -105,7 +105,7 @@ public class CameraService : ICameraService, IDisposable
 
     public void Stop()
     {
-        _cts?.Cancel();
+        _timer.Stop();
     }
 
     public void Dispose()
