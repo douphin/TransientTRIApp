@@ -26,11 +26,14 @@ using System.Linq;
 
 /*
  * TODO:
- * Add packet saving
- * use meanshift for image alignment
+ * ROI image alignment
+ * Use ReaderWriterLockSlim
+ * Implement Image Processing Step Procedure
  * Add Calibration settings
  *  -communicate with stage
  *  -set temperature and take frames
+ *  
+ *  
  */
 
 namespace TransientTRIApp.UI
@@ -41,48 +44,16 @@ namespace TransientTRIApp.UI
         private readonly IPulseGeneratorService _pulseGenerator;
         private readonly ICameraService _cameraService;
         private readonly IThermocoupleService _thermocoupleService;
-        private DateTime[] _timestamps;
-        private int _dataPointCount = 0;
-        private const int MaxDataPoints = 60; // Keep last 60 readings
-        //private object _bitmapLock = new object();
-        private readonly Mutex _bitmapMutex = new Mutex();
-        private volatile bool _isHotFrameRolling = false;
-        private Bitmap _currentDisplayBitmap;
-        private Bitmap _capturedBitmap;
-        private Bitmap _darkFrameBitmap;
-        private double _tcReadingForCapturedBitmap;
-        private double _actualTriggerRate = 0;
-        private double _actualPulseWidth = 0;
-        private double _actualLVPeak = 0;
-        private long _frameCount = 0;
-        private readonly object _frameCountLock = new object();
-        private readonly int _metricSampleRate = 1000;
 
         private DispatcherTimer _debounceTimer;
-        private const int DebounceDelayMs = 2500; // Wait 500ms after slider stops moving
+        private const int DebounceDelayMs = 2500; // how long to wait after slider stops moving
 
         private readonly System.Timers.Timer _frameTimer = new System.Timers.Timer();
-
-        private string _recordingFolderPath;
-        private StreamWriter _csvFile;
-        private volatile bool _isRecording = false;
-        private readonly object _csvModelLock = new object();
-        private System.Collections.Generic.Dictionary<string, CombinedMetrics> _csvModel = new System.Collections.Generic.Dictionary<string, CombinedMetrics>();
-
-        private Rectangle _drawnRect;
-        private Rectangle _draggingRect;
-        private int _startX;
-        private int _startY;
-        private bool _isDraggingROI;
-        private double _elementImageScaleRateX = -1;
-        private double _elementImageScaleRateY = -1;
-
+        private readonly System.Timers.Timer _pixelValueCountTimer = new System.Timers.Timer();
 
         public ChartValues<double> GPUUtilizationData;
         public ChartValues<double> GPUTemperatureData;
         public ChartValues<double> TCTemperatureData;
-        public ChartValues<double> CameraExposureTiming;
-        public ChartValues<double> PulseGeneratorTiming;
         public ChartValues<double> PixelValueCount;
 
         public MainWindow()
@@ -99,8 +70,7 @@ namespace TransientTRIApp.UI
             _thermocoupleService.TempReady += OnTCReadingsUpdated;
 
             InitializeChartData();
-            BindGPUSliders();
-            BindCameraSliders();
+            BindUISliders();
 
             ImageProcessing.PreProcess();
 
@@ -112,13 +82,11 @@ namespace TransientTRIApp.UI
             GPUUtilizationData = new ChartValues<double>();
             GPUTemperatureData = new ChartValues<double>();
             TCTemperatureData = new ChartValues<double>();
-            CameraExposureTiming = new ChartValues<double>();
-            PulseGeneratorTiming = new ChartValues<double>();
             PixelValueCount = new ChartValues<double>();
-            _timestamps = new DateTime[MaxDataPoints];
         }
 
-        private void BindGPUSliders()
+        // For areas of the UI where there are both sliders and text boxes, those inputs need to be tied together with logic, which is what happens here
+        private void BindUISliders()
         {
             // Trigger Rate
             TriggerRateSlider.ValueChanged += (s, e) =>
@@ -164,12 +132,7 @@ namespace TransientTRIApp.UI
                 }
             };
             LVPeakValue.Text = LVPeakSlider.Value.ToString();
-
-            //CalculateLEDTiming(TriggerRateSlider.Value, PulseWidthSlider.Value);
-        }
-
-        private void BindCameraSliders()
-        {
+  
             // Exposure
             ExposureSlider.ValueChanged += (s, e) =>
             {
@@ -179,11 +142,13 @@ namespace TransientTRIApp.UI
                 // Update camera exposure in real-time
                 _cameraService.SetExposure(ExposureSlider.Value * 1000);
 
+                // This will automatically adjust LED settings based on exposure
                 if (AdjustLED.IsChecked == true)
                 {
                     PulseWidthSlider.Value = ExposureSlider.Value / 1000 / 2;
                     TriggerRateSlider.Value = 1 / PulseWidthSlider.Value;
 
+                    // This will start a timer after the exposure is adjusted, at the conclusion of that timer, it will send commands to change LED settings
                     if (SubmitLED.IsChecked == true)
                     {
                         _debounceTimer.Stop();
@@ -199,39 +164,6 @@ namespace TransientTRIApp.UI
                     ExposureSlider.Value = Clamp(value, ExposureSlider.Minimum, ExposureSlider.Maximum);
                 }
             };
-
-            // Offset
-            //OffsetSlider.ValueChanged += (s, e) =>
-            //{
-            //    OffsetInput.Text = $"{OffsetSlider.Value:F1}";
-            //    OffsetInput.Text = OffsetSlider.Value.ToString("F1");
-
-            //    // Update camera offset in real-time
-            //    UpdateCameraFrameOffset((int)OffsetSlider.Value);
-            //};
-
-            //OffsetInput.TextChanged += (s, e) =>
-            //{
-            //    if (double.TryParse(OffsetInput.Text, out double value))
-            //    {
-            //        OffsetSlider.Value = Clamp(value, OffsetSlider.Minimum, OffsetSlider.Maximum);
-            //    }
-            //};
-        }
-
-        private void CalculateLEDTiming(double triggerRate, double pulseWidth)
-        {
-            //int higherCounter = 0;
-
-            for(int i = 0; i < 100; i++)
-            {
-                //if (i )
-            }
-        }
-
-        private void UpdateCameraFrameOffset(int offset)
-        {
-            _cameraService.UpdateCameraFrameOffset(offset);
         }
 
         private double Clamp(double value, double min, double max)
@@ -284,30 +216,6 @@ namespace TransientTRIApp.UI
                 LineSmoothness = 0,
             };
 
-
-            // This is for some timing thing I started working one but abandoned
-            var cameraTiming = new LineSeries
-            {
-                Title = "Camera",
-                Values = CameraExposureTiming,
-                StrokeThickness = 2,
-                Stroke = System.Windows.Media.Brushes.DarkSeaGreen,
-                Fill = System.Windows.Media.Brushes.Transparent,
-                PointGeometrySize = 0,
-                LineSmoothness = 0,
-            };
-
-            var pulseGen = new LineSeries
-            {
-                Title = "LED",
-                Values = PulseGeneratorTiming,
-                StrokeThickness = 2,
-                Stroke = System.Windows.Media.Brushes.OrangeRed,
-                Fill = System.Windows.Media.Brushes.Transparent,
-                PointGeometrySize = 0,
-                LineSmoothness = 0,
-            };
-
             //
             var pixelValueCount = new LineSeries
             {
@@ -321,7 +229,6 @@ namespace TransientTRIApp.UI
             };
 
             GPUChart.Series = new SeriesCollection { gpuUtilizationSeries, gpuTemperatureSeries, tcTemperatureSeries };
-            TimingChart.Series = new SeriesCollection { cameraTiming, pulseGen };
             PixelValueCountChart.Series = new SeriesCollection {  pixelValueCount };
 
             _ = ReadMachineSettings();
@@ -338,454 +245,18 @@ namespace TransientTRIApp.UI
             _frameTimer.Elapsed += FrameTimer_Elapsed;
             _frameTimer.Start();
 
+            _pixelValueCountTimer.Interval = 1000;
+            _pixelValueCountTimer.Elapsed += PixelValueCountTimer_Elapsed;
+            _pixelValueCountTimer.Start();
+
             // Setup debounce timer
             _debounceTimer = new DispatcherTimer();
             _debounceTimer.Interval = TimeSpan.FromMilliseconds(DebounceDelayMs);
             _debounceTimer.Tick += (s, e) =>
             {
                 _debounceTimer.Stop();
-                _ = ConfigurePulseGenerator(); // Call your function
+                _ = ConfigurePulseGenerator();
             };
-        }
-
-        private void FrameTimer_Elapsed(object sender, ElapsedEventArgs e)
-        {
-            Bitmap localBitmap = null;
-
-            _bitmapMutex.WaitOne();
-            {
-                try
-                {
-                    if (_currentDisplayBitmap != null)
-                        localBitmap = (Bitmap)_currentDisplayBitmap?.Clone();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.Message);
-                }
-            }
-            _bitmapMutex.ReleaseMutex();
-
-            lock (_frameCountLock)
-            {
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    FPSCounter.Text = "FPS: " + _frameCount.ToString();
-                    _frameCount = 0;
-                }));
-            }
-
-            if (localBitmap != null)
-            {
-                var data = ImageProcessing.GetPixelValueCount(localBitmap);
-                UI(() =>
-                {
-                    PixelValueCount.Clear();           
-                    PixelValueCount.AddRange(data);
-                    PixelValueCountChart.AxisY[0].MaxValue = data.Max();
-                    localBitmap.Dispose();
-                });
-            }
-        }
-
-        private void OnFrameReady(object sender, CameraFrameEventArgs e)
-        {
-            UI(() =>
-            {
-                Bitmap bmp;
-
-                CameraFrame cf = new CameraFrame
-                {
-                    Frame = null,
-                    CaptureTime = DateTime.Now,
-                    IsHotFrameRolling = _isHotFrameRolling,
-                    RecentTCReading = TCTemperatureData.LastOrDefault(),
-                    ColdFrameTCReading = _tcReadingForCapturedBitmap,
-                    SubtractDarkFrame = SubtractDarkFrame.IsChecked == true,
-                    DivideByColdFrame = DivideByColdFrame.IsChecked == true,
-                    ScaleByTemperature = ScaleByTemperature.IsChecked == true,
-                    TrackROI = false,
-                    NormalizeBeforeMap = true,
-                    ApplyColorMap = true,
-                    roi = _isDraggingROI ? _draggingRect : _drawnRect
-                };
-                 
-                if (double.TryParse(Coefficient.Text, out double coe))
-                    cf.Coefficient = coe;
-                if (double.TryParse(Coefficient.Text, out double adhoc))
-                    cf.Coefficient = adhoc;
-
-                // Store the current bitmap temporarily
-                try
-                {
-                    _bitmapMutex.WaitOne();
-                    {
-                        _currentDisplayBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
-
-                        cf.Frame = (Bitmap)_currentDisplayBitmap.Clone();
-                        bmp = ImageProcessing.ProcessFrame(cf);
- 
-                        cf.Dispose();
-
-                        if (_elementImageScaleRateX == -1 && _frameCount > 10)
-                        {
-                            _elementImageScaleRateX = _currentDisplayBitmap.Width / CameraImage.ActualWidth;
-                            _elementImageScaleRateY = _currentDisplayBitmap.Height / CameraImage.ActualHeight;
-                        }       
-
-                    }
-                    _bitmapMutex.ReleaseMutex();
-                }
-                catch (ObjectDisposedException ex)
-                {
-                    Console.WriteLine(ex.Message);
-                    return;
-                }
-
-                // This should really only be true just after program startup, to autofill the darkframe
-                if (_darkFrameBitmap == null && _frameCount > 10)
-                {
-                    SetDarkFrame();
-                    StartLED();
-                }
-
-                
-
-                // Display it as before
-                CameraImage.Source = ConvertBitmap(bmp);
-
-                lock (_frameCountLock)
-                {
-                    _frameCount++;
-                    Frame.Text = _frameCount.ToString();
-                }
-            });
-        }
-
-        private void OnGPUMetricsUpdated(object sender, GPUMetrics metrics)
-        {
-            UI(() =>
-            {
-                AddGPUDataPoint(metrics);
-
-                if (_isRecording)
-                {
-                    lock (_csvModelLock)
-                    {
-                        if (_csvModel.TryGetValue(metrics.Timestamp.ToString(), out var value))
-                            value.Update(metrics);
-                        else
-                            _csvModel.Add(metrics.Timestamp.ToString(), new CombinedMetrics(metrics));
-                    }
-                }
-            });
-        }
-
-        private void AddGPUDataPoint(GPUMetrics metrics)
-        {
-            if (_dataPointCount >= MaxDataPoints)
-            {
-                // Remove oldest data point
-                GPUUtilizationData.RemoveAt(0);
-                GPUTemperatureData.RemoveAt(0);
-                Array.Copy(_timestamps, 1, _timestamps, 0, MaxDataPoints - 1);
-            }
-            else
-            {
-                _dataPointCount++;
-            }
-
-            GPUUtilizationData.Add(metrics.GPUUtilization);
-            GPUTemperatureData.Add(metrics.GPUTemperature);
-            _timestamps[_dataPointCount - 1] = metrics.Timestamp;
-        }
-
-        public void OnTCReadingsUpdated(object sender, ThermocoupleReadings readings)
-        {
-            UI(() =>
-            {
-                TCTemperatureData.Add(readings.TCTemperature);
-                if (TCTemperatureData.Count > 60)
-                    TCTemperatureData.RemoveAt(0);
-
-                if (_isRecording)
-                {
-                    lock (_csvModelLock)
-                    {
-                        if (_csvModel.TryGetValue(readings.Timestamp.ToString(), out var value))
-                            value.Update(readings);
-                        else
-                            _csvModel.Add(readings.Timestamp.ToString(), new CombinedMetrics(readings));
-                    }
-                }
-            });
-        }
-
-
-        private void SelectRecordingFolder()
-        {
-            var dialog = new System.Windows.Forms.FolderBrowserDialog();
-            dialog.Description = "Select folder to save recording data";
-
-            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-            {
-                _recordingFolderPath = dialog.SelectedPath;
-                RecordingFolderDisplay.Text = System.IO.Path.GetFileName(_recordingFolderPath);
-                RecordingToggleButton.IsEnabled = true;
-                Console.WriteLine($"Recording folder selected: {_recordingFolderPath}");
-            }
-        }
-
-        private void ToggleRecording()
-        {
-            if (_isRecording)
-            {
-                _ = StopRecording();
-            }
-            else
-            {
-                StartRecording();
-            }
-        }
-
-        private void StartRecording()
-        {
-            try
-            {
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                string metricsPath = System.IO.Path.Combine(_recordingFolderPath, $"metrics_{timestamp}.csv");
-
-                _csvFile = new StreamWriter(metricsPath, true);
-                _csvFile.WriteLine("TCTimestamp, GPUTimestamp,TCTemperature(C),GPUTemperature(C),GPUUtilization(%)");
-                _csvFile.Flush();
-
-                _isRecording = true;
-                RecordingToggleButton.Content = "Stop Recording";
-                RecordingToggleButton.Background = System.Windows.Media.Brushes.IndianRed;
-                RecordingFolderDisplay.Text += " [RECORDING]";
-
-                Console.WriteLine($"Recording started: {metricsPath}");
-                //MessageBox.Show($"Recording started!\nMetrics saved to: {metricsPath}", "Recording Started", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error starting recording: {ex.Message}");
-            }
-        }
-
-        private async Task StopRecording()
-        {
-            try
-            {
-                RecordingToggleButton.Content = "Saving...";
-                _isRecording = false;
-
-                await Task.Run(() =>
-                {
-                    foreach(CombinedMetrics item in _csvModel.Values)
-                    {
-                        _csvFile.WriteLine($"{item.TCTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.GPUTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.TCTemperature:F2},{item.GPUTemperature:F2},{item.GPUUtilization:F1}");
-                        _csvFile.Flush();
-                    }
-                });
-       
-                _csvFile?.Close();
-                _csvFile?.Dispose();
-                _csvModel = new System.Collections.Generic.Dictionary<string, CombinedMetrics>();
-
-                RecordingToggleButton.Content = "Start Recording";
-                RecordingToggleButton.Background = System.Windows.Media.Brushes.LimeGreen;
-                RecordingFolderDisplay.Text = RecordingFolderDisplay.Text.Replace(" [RECORDING]", "");
-
-                Console.WriteLine("Recording stopped");
-                //MessageBox.Show("Recording stopped!", "Recording Stopped", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error stopping recording: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void SetDarkFrame()
-        {
-            _bitmapMutex.WaitOne();
-            {
-                if (_currentDisplayBitmap != null)
-                {
-                    // Dispose old captured bitmap
-                    _darkFrameBitmap?.Dispose();
-
-                    // Clone the current display bitmap for storage
-                    _darkFrameBitmap = (Bitmap)_currentDisplayBitmap.Clone();
-                    ImageProcessing.SetNewMatRefDark(_darkFrameBitmap);
-                    DarkFrameTime.Text = DateTime.Now.ToLongTimeString();
-                }
-                else
-                {
-                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-            }
-            _bitmapMutex.ReleaseMutex();
-        }
-
-        private void SetColdFrame()
-        {
-            _bitmapMutex.WaitOne();
-            {
-                if (_currentDisplayBitmap != null)
-                {
-                    // Dispose old captured bitmap
-                    _capturedBitmap?.Dispose();
-
-                    // Clone the current display bitmap for storage
-                    _capturedBitmap = (Bitmap)_currentDisplayBitmap.Clone();
-                    _tcReadingForCapturedBitmap = TCTemperatureData.LastOrDefault();
-                    ImageProcessing.SetNewMatRefCold( _capturedBitmap );
-                    ColdFrameTime.Text = DateTime.Now.ToLongTimeString();
-                }
-                else
-                {
-                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-            }
-            _bitmapMutex.ReleaseMutex();
-        }
-
-        private void StartHotFrame()
-        {
-            _isHotFrameRolling = !_isHotFrameRolling;
-            HotFrameToggle.Content = _isHotFrameRolling ? "Pause Hot Frame" : "Start Hot Frame";
-        }
-
-        private void PauseLED()
-        {
-            try
-            {
-                Task.Run(() =>
-                {
-                    _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    _pulseGenerator.SendSingleCycle();
-                    _pulseGenerator.Disconnect();
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Connecting and Sending Single Cycle {ex.Message}");
-            }
-        }
-
-        private void StartLED()
-        {
-            try
-            {
-                Task.Run(() =>
-                {
-                    _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    _pulseGenerator.SendTriggerRate();
-                    _pulseGenerator.Disconnect();
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Connecting and Sending Single Cycle {ex.Message}");
-            }
-        }
-
-        private void OnConfigurePulseGenerator(object sender, RoutedEventArgs e)
-        {
-            _ = ConfigurePulseGenerator();
-        }
-
-        private async Task ConfigurePulseGenerator()
-        {
-            try
-            {
-                double triggerRate = TriggerRateSlider.Value;
-                double pulseWidth = PulseWidthSlider.Value;
-                double lvPeak = LVPeakSlider.Value;
-
-                await Task.Run(() =>
-                {
-                    // Uncomment when GPIB device is available:
-                    _pulseGenerator.Connect("GPIB0::6::INSTR");
-                    _pulseGenerator.Configure(triggerRate, pulseWidth, lvPeak);
-                    _pulseGenerator.Disconnect();
-
-                    // Update stored values
-                    _actualTriggerRate = _pulseGenerator.TriggerRateHz;
-                    _actualPulseWidth = _pulseGenerator.PulseWidthSec;
-                    _actualLVPeak = _pulseGenerator.LVPeakV;
-                });
-
-                // Update UI
-                UpdateActualValuesDisplay();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void UpdateActualValuesDisplay()
-        {
-            TriggerRateActual.Text = $"(Actual: {_actualTriggerRate:F0} Hz)";
-            PulseWidthActual.Text = $"(Actual: {_actualPulseWidth:E2} s)";
-            LVPeakActual.Text = $"(Actual: {_actualLVPeak:F2} V)";
-        }
-
-        // Call this on startup to read initial machine settings
-        private async Task ReadMachineSettings()
-        {
-            try
-            {
-                    await Task.Run(() =>
-                    {
-                        _pulseGenerator.Connect("GPIB0::6::INSTR");
-                        _pulseGenerator.InitialConfiguration();
-                        _pulseGenerator.GetCurrentSettings();
-                        _pulseGenerator.Disconnect();
-
-                        _actualTriggerRate = _pulseGenerator.TriggerRateHz;
-                        _actualPulseWidth = _pulseGenerator.PulseWidthSec;
-                        _actualLVPeak = _pulseGenerator.LVPeakV;
-                    });
-
-                UpdateActualValuesDisplay();
-
-                TriggerRateSlider.Value = _actualTriggerRate;
-                TriggerRateInput.Text = _actualTriggerRate.ToString();
-
-                PulseWidthSlider.Value = _actualPulseWidth;
-                PulseWidthInput.Text = _actualPulseWidth.ToString();
-
-                LVPeakSlider.Value = _actualLVPeak;
-                LVPeakInput.Text = _actualLVPeak.ToString();
-
-                if (_actualPulseWidth > 0 && _actualTriggerRate > 0 && Math.Round(_actualTriggerRate * _actualPulseWidth) == 1)
-                {
-                    ExposureSlider.Value = _actualPulseWidth * 1000 * 2;
-                }
-
-                Console.WriteLine("Machine settings read successfully");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error reading machine settings: {ex.Message}");
-            }
-        }
-
-        private void UpdateInterval()
-        {
-            if (int.TryParse(UpdateIntervalBox.Text, out int intervalMs))
-            {
-                _gpuMonitor.SetUpdateInterval(intervalMs);
-                _thermocoupleService.SetUpdateInterval(intervalMs);
-                MessageBox.Show($"Update interval set to {intervalMs}ms", "GPU Monitor", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            else
-            {
-                MessageBox.Show("Please enter a valid interval in milliseconds", "Invalid Input", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
         }
 
         private void StartAll()
@@ -796,6 +267,7 @@ namespace TransientTRIApp.UI
             _cameraService.Start();
             _gpuMonitor.Start(1000);
             _frameTimer.Start();
+            _pixelValueCountTimer.Start();
         }
 
         private void StopAll()
@@ -804,50 +276,14 @@ namespace TransientTRIApp.UI
             _gpuMonitor.Stop();
             _thermocoupleService.Stop();
             _frameTimer.Stop();
-        }
-
-        // Method to retrieve the captured bitmap (thread-safe)
-        public Bitmap GetCapturedBitmap()
-        {
-            Bitmap temp;
-            _bitmapMutex.WaitOne();
-            {
-                // Return a clone so caller doesn't accidentally dispose it
-                temp = _capturedBitmap?.Clone() as Bitmap;
-            }
-            _bitmapMutex.ReleaseMutex();
-            return temp;
-        }
-
-        // Method to save captured bitmap to file
-        public void SaveCapturedBitmapToFile(string filePath)
-        {
-            _bitmapMutex.WaitOne();
-            {
-                if (_capturedBitmap != null)
-                {
-                    try
-                    {
-                        _capturedBitmap.Save(filePath);
-                        Console.WriteLine($"Bitmap saved to {filePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error saving bitmap: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("No captured bitmap to save");
-                }
-            }
-            _bitmapMutex.ReleaseMutex();
+            _pixelValueCountTimer.Stop();
         }
 
         // Clean up when window closes
         protected override void OnClosed(EventArgs e)
         {
             _frameTimer.Stop();
+            _pixelValueCountTimer.Stop();
             _cameraService.Stop();
             Thread.Sleep(100);
             _gpuMonitor.Stop();
@@ -855,8 +291,8 @@ namespace TransientTRIApp.UI
 
             _bitmapMutex.WaitOne();
             {
-                _capturedBitmap?.Dispose();
-                _currentDisplayBitmap?.Dispose();
+                _coldFrameBitmap?.Dispose();
+                _currentCameraBitmap?.Dispose();
             }
             _bitmapMutex.ReleaseMutex();
             _bitmapMutex.Dispose();
@@ -867,31 +303,8 @@ namespace TransientTRIApp.UI
             base.OnClosed(e);
         }
 
-        // --- Bitmap -> BitmapSource conversion ---
-        [DllImport("gdi32.dll")]
-        private static extern bool DeleteObject(IntPtr hObject);
-
-        private static BitmapSource ConvertBitmap(Bitmap bitmap)
-        {
-            IntPtr hBitmap = bitmap.GetHbitmap();
-            try
-            {
-                return Imaging.CreateBitmapSourceFromHBitmap(
-                    hBitmap,
-                    IntPtr.Zero,
-                    Int32Rect.Empty,
-                    BitmapSizeOptions.FromEmptyOptions());
-            }
-            finally
-            {
-                DeleteObject(hBitmap);
-                bitmap.Dispose();
-            }
-        }
-
-
         // Button Handlers
-        // If you bake logic directly into the button handler, it can be hard to call that function elsewhere so wer separate them a bit
+        // If you bake logic directly into the button handler, it can be hard to call that function elsewhere so we like to separate them a bit
 
         private void OnSelectRecordingFolderClicked(object sender, RoutedEventArgs e)
         {
@@ -991,6 +404,11 @@ namespace TransientTRIApp.UI
                 _draggingRect.Width = (int)(_elementImageScaleRateX * XY.X - _draggingRect.X);
                 _draggingRect.Height = (int)(_elementImageScaleRateY * XY.Y - _draggingRect.Y);
             }
+        }
+
+        private void OnSaveFrameClicked(object sender, RoutedEventArgs e)
+        {
+            SaveCurrentFrame($"{_savedFrameCount}_Manual");
         }
     }
 }

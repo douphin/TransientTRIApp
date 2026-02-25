@@ -13,7 +13,6 @@ public class CameraService : ICameraService, IDisposable
     private MultimediaTimer _timer;
     private Camera _camera;
     private bool _disposed = false;
-    private int _offsetMs = 0;
     private double _exposureValue = 2000.0;
 
     public event EventHandler<CameraFrameEventArgs> FrameReady;
@@ -60,8 +59,6 @@ public class CameraService : ICameraService, IDisposable
         IGrabResult grabResult = null;
         Bitmap bmp = null;
 
-        MultimediaTimer.PreciseWait(_offsetMs);
-
         try
         {
             grabResult = _camera.StreamGrabber.RetrieveResult(5000, TimeoutHandling.ThrowException);
@@ -88,7 +85,7 @@ public class CameraService : ICameraService, IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error capturing frame: {ex.Message}");
+            Console.WriteLine($"Error capturing frame: {ex.ToString()}");
             bmp?.Dispose();
         }
         finally
@@ -96,11 +93,6 @@ public class CameraService : ICameraService, IDisposable
             // Dispose grab result immediately to free resources
             grabResult?.Dispose();
         }
-    }
-
-    public void UpdateCameraFrameOffset(int newOffsetMs)
-    {
-        _offsetMs = newOffsetMs;
     }
 
     public void Stop()
