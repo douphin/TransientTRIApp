@@ -261,20 +261,12 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <Button Grid.Column="0" Grid.Row="0" Content="Set Dark Frame" Padding="12,8" x:Name="DarkFrameToggle"
-                                Background="Black" Foreground="White" FontWeight="SemiBold" 
-                                Cursor="Hand" Click="OnSetDarkFrameClicked" Margin="0,0,4,8"/>
-                                    <Button Grid.Column="1" Grid.Row="0" Content="Set Cold Frame" Padding="12,8" 
-                                Background="Blue" Foreground="White" FontWeight="SemiBold" 
-                                Cursor="Hand" Click="OnSetColdFrameClicked" Margin="4,0,4,8"/>
                                     <Button Grid.Column="2" Grid.Row="0" Content="Start Hot Frame" Padding="12,8" x:Name="HotFrameToggle"
                                 Background="Red" Foreground="White" FontWeight="SemiBold" 
                                 Cursor="Hand" Click="OnStartHotFrameClicked" Margin="4,0,0,8"/>
-                                    <TextBlock x:Name="DarkFrameTime" Grid.Column="0" Grid.Row="1" 
-                                               Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
-                                    <TextBlock x:Name="ColdFrameTime" Grid.Column="1" Grid.Row="1" 
-                                               Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                    
                                 </Grid>
                                 <Grid Margin="0, 8, 4, 0">
                                     <Grid.ColumnDefinitions>
@@ -313,6 +305,93 @@
                                     </lvc:CartesianChart.AxisY>
                                 </lvc:CartesianChart>
                             </StackPanel>
+                        </Border>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Calibration">
+                <ScrollViewer Margin="12">
+                    <Grid Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="2*"/>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                        </Grid.RowDefinitions>
+                        <Border BorderBrush="#ddd" Grid.Row="0" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Stable Camera Frames" FontSize="14" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,8"/>
+                                <Separator Background="#eee" Margin="0,0,0,8"/>
+                                <Grid Margin="0,8,4,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    
+                                    <!-- Dark Frame Elements -->
+                                    <Button Grid.Column="0" Grid.Row="0" Content="Set Dark Frame" Padding="12,8" x:Name="DarkFrameToggle"
+    Background="Black" Foreground="White" FontWeight="SemiBold" 
+    Cursor="Hand" Click="OnSetDarkFrameClicked" Margin="0,0,4,8"/>
+                                    <TextBlock x:Name="DarkFrameTime" Grid.Column="0" Grid.Row="1" HorizontalAlignment="Left" Margin="0,0,4,8"
+           Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                    <TextBlock x:Name="DarkFrameTemp" Grid.Column="0" Grid.Row="1" HorizontalAlignment="Right"
+Text="--.- (°C)" FontStyle="Italic" Foreground="Gray" Margin="0,0,4,0"/>
+
+                                    <!-- Cold Frame Elements -->
+                                    <Button Grid.Column="1" Grid.Row="0" Content="Set Cold Frame" Padding="12,8" 
+Background="Blue" Foreground="White" FontWeight="SemiBold" 
+Cursor="Hand" Click="OnSetColdFrameClicked" Margin="4,0,4,8"/>
+                                    <TextBlock x:Name="ColdFrameTime" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left" Margin="4,0,4,8"
+           Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                    <TextBlock x:Name="ColdFrameTemp" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right"
+           Text="--.- (°C)" FontStyle="Italic" Foreground="Gray" Margin="0,0,4,0"/>
+
+                                    <!-- Hot Frame Elements -->
+                                    <Button Grid.Column="2" Grid.Row="0" Content="Set Hot Frame" Padding="12,8" 
+Background="Red" Foreground="White" FontWeight="SemiBold" 
+Cursor="Hand" Click="OnSetHotFrameClicked" Margin="4,0,0,8"/>
+                                    <TextBlock x:Name="HotFrameTime" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left" Margin="4,0,0,8"
+           Text="(--:--:---)" FontStyle="Italic" Foreground="Gray"/>
+                                    <TextBlock x:Name="HotFrameTemp" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right"
+           Text="--.- (°C)" FontStyle="Italic" Foreground="Gray" Margin="0,0,4,0"/>
+                                </Grid>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Button Grid.Column="0" Grid.Row="0" Content="Compute CTR" Padding="12,8" Background="Purple" Foreground="White"
+                                                FontWeight="SemiBold" Cursor="Hand" Click="OnComputeCTRClicked"/>
+                                    <TextBlock Text="Average Coefficient of ROI: " Grid.Column="0" Grid.Row="1"/>
+                                    <TextBlock Text="Average Coefficient of Image: " Grid.Column="0" Grid.Row="2"/>
+                                    <TextBlock x:Name="AvgCTRofROI" Text="" Grid.Column="1" Grid.Row="1"/>
+                                    <TextBlock x:Name="AvgCTRofImage" Text="" Grid.Column="1" Grid.Row="2"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="GPU">
+                <ScrollViewer Margin="12">
+                    <Grid Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="2*"/>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                        </Grid.RowDefinitions>
+                        <Border BorderBrush="#ddd" Grid.Row="0" BorderThickness="1" Background="White" CornerRadius="4" Padding="16" Margin="0,0,0,12">
                         </Border>
                     </Grid>
                 </ScrollViewer>

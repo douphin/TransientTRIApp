@@ -29,6 +29,7 @@ using System.Linq;
  * ROI image alignment
  * Use ReaderWriterLockSlim
  * Implement Image Processing Step Procedure
+ * Add GPU loading
  * Add Calibration settings
  *  -communicate with stage
  *  -set temperature and take frames
@@ -324,6 +325,16 @@ namespace TransientTRIApp.UI
         private void OnSetColdFrameClicked(object sender, RoutedEventArgs e)
         {
             SetColdFrame();
+        }
+
+        private void OnSetHotFrameClicked(object sender, RoutedEventArgs e)
+        {
+            SetHotFrame();
+        }
+
+        private void OnComputeCTRClicked(object sender, RoutedEventArgs e)
+        {
+            ComputerCTR();
         }
 
         private void OnStartHotFrameClicked(object sender, RoutedEventArgs e)

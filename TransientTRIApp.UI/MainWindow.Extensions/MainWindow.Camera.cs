@@ -37,9 +37,13 @@ namespace TransientTRIApp.UI
         private Bitmap _currentDisplayBitmap;
         private Bitmap _coldFrameBitmap;
         private Bitmap _darkFrameBitmap;
-        private double _tcReadingForCapturedBitmap;
-        private DateTime _coldFrameTime;
+        private Bitmap _hotFrameBitmap;
+        private double _tcReadingForDarkFrame;
+        private double _tcReadingForColdFrame;
+        private double _tcReadingForHotFrame;
         private DateTime _darkFrameTime;
+        private DateTime _coldFrameTime;
+        private DateTime _hotFrameTime;
 
         private long _frameCount = 0;
         private readonly object _frameCountLock = new object();
@@ -108,7 +112,7 @@ namespace TransientTRIApp.UI
                     CaptureTime = DateTime.Now,
                     IsHotFrameRolling = _isHotFrameRolling,
                     RecentTCReading = TCTemperatureData.LastOrDefault(),
-                    ColdFrameTCReading = _tcReadingForCapturedBitmap,
+                    ColdFrameTCReading = _tcReadingForColdFrame,
                     SubtractDarkFrame = SubtractDarkFrame.IsChecked == true,
                     DivideByColdFrame = DivideByColdFrame.IsChecked == true,
                     ScaleByTemperature = ScaleByTemperature.IsChecked == true,
@@ -203,9 +207,11 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _darkFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
+                    _tcReadingForDarkFrame = TCTemperatureData.LastOrDefault();
                     ImageProcessing.SetNewMatRefDark(_darkFrameBitmap);
                     _darkFrameTime = DateTime.Now;
                     DarkFrameTime.Text = _darkFrameTime.ToLongTimeString();
+                    DarkFrameTemp.Text = _tcReadingForDarkFrame.ToString("F1") + " (°C)";
                 }
                 else
                 {
@@ -230,10 +236,40 @@ namespace TransientTRIApp.UI
 
                     // Clone the current display bitmap for storage
                     _coldFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
-                    _tcReadingForCapturedBitmap = TCTemperatureData.LastOrDefault();
+                    _tcReadingForColdFrame = TCTemperatureData.LastOrDefault();
                     ImageProcessing.SetNewMatRefCold(_coldFrameBitmap);
                     _coldFrameTime = DateTime.Now;
                     ColdFrameTime.Text = _coldFrameTime.ToLongTimeString();
+                    ColdFrameTemp.Text = _tcReadingForColdFrame.ToString("F1") + " (°C)";
+                }
+                else
+                {
+                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            _bitmapMutex.ReleaseMutex();
+        }
+
+        /// <summary>
+        /// Will hold mutex to hold the current frame as the hot frame, will also submit that frame to the ImageProcessing class.
+        /// This can be called from the OnSetHotFrameClicked button handler, as of right now there is no situation where this will get called automatically
+        /// </summary>
+        private void SetHotFrame()
+        {
+            _bitmapMutex.WaitOne();
+            {
+                if (_currentCameraBitmap != null)
+                {
+                    // Dispose old captured bitmap
+                    _hotFrameBitmap?.Dispose();
+
+                    // Clone the current display bitmap for storage
+                    _hotFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
+                    _tcReadingForHotFrame = TCTemperatureData.LastOrDefault();
+                    ImageProcessing.SetNewMatRefHot(_hotFrameBitmap);
+                    _hotFrameTime = DateTime.Now;
+                    HotFrameTime.Text = _hotFrameTime.ToLongTimeString();
+                    HotFrameTemp.Text = _tcReadingForHotFrame.ToString("F1") + " (°C)";
                 }
                 else
                 {
@@ -330,7 +366,15 @@ namespace TransientTRIApp.UI
                 localCameraFrame?.Dispose();
                 localDisplayFrame?.Dispose();
             }
+        }
 
+        public void ComputerCTR()
+        {
+            var CTRs = ImageProcessing.ComputeCTR(_tcReadingForHotFrame - _tcReadingForColdFrame,
+                _isDraggingROI ? _draggingRect : _drawnRect);
+
+            AvgCTRofImage.Text = CTRs.Item1.ToString();
+            AvgCTRofROI.Text = CTRs.Item2.ToString();
         }
     }
 }
