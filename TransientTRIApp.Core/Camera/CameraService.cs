@@ -36,8 +36,9 @@ public class CameraService : ICameraService, IDisposable
                 // Configure camera to match your current settings
                 _camera.Parameters[PLCamera.ExposureTimeAbs].SetValue(_exposureValue);
                 _camera.Parameters[PLCamera.GainRaw].SetValue(370);
+                _camera.Parameters[PLCameraInstance.MaxNumBuffer].SetValue(20);
 
-                Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
+               Console.WriteLine($"Exposure set to: {_camera.Parameters[PLCamera.ExposureTimeAbs].GetValue()}");
                 Console.WriteLine($"Gain set to: {_camera.Parameters[PLCamera.GainRaw].GetValue()}");
 
                 // Start continuous acquisition

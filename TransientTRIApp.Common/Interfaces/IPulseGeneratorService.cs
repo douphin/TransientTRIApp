@@ -13,11 +13,11 @@ namespace TransientTRIApp.Common.Interfaces
         double LVPeakV { get; set; }
 
         void Connect(string gpibAddress);
-        void InitialConfiguration();
-        void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV);
+        void InitialConfiguration(int recurseCount = 0);
+        void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV, int recurseCount = 0);
         void SendTriggerRate();
         void SendSingleCycle();
         void Disconnect();
-        void GetCurrentSettings();
+        void GetCurrentSettings(int recurseCount = 0);
     }
 }

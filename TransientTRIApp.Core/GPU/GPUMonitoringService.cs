@@ -11,7 +11,11 @@ using TransientTRIApp.Common.Models;
 
 namespace TransientTRIApp.Core.GPU
 {
-    public class GPUMonitoringService : IGPUMonitoringService, IDisposable
+    /*
+     * Failed to parse nvidia-smi output: 16, 48
+0, 29
+     */
+    public class GPUMonitoringService :  IDisposable
     {
         private CancellationTokenSource _cts;
         private int _updateIntervalMs = 1000;
@@ -20,7 +24,7 @@ namespace TransientTRIApp.Core.GPU
         private readonly string _nvidiaSmiBPath = @"C:\Users\UC-TEC-TRI\Documents\nvidia-smi.exe";
         System.Timers.Timer _timer = new System.Timers.Timer();
 
-        public event EventHandler<GPUMetrics> MetricsUpdated;
+        public event EventHandler<(GPUMetrics, GPUMetrics)> MetricsUpdated;
 
         public void Start(int? updateIntervalMs)
         {
@@ -74,7 +78,7 @@ namespace TransientTRIApp.Core.GPU
             try
             {
                 var metrics = QueryGPUMetrics();
-                if (metrics != null)
+                if (metrics.Item1 != null)
                 {
                     MetricsUpdated?.Invoke(this, metrics);
                 }
@@ -85,7 +89,7 @@ namespace TransientTRIApp.Core.GPU
             }
         }
 
-        private GPUMetrics QueryGPUMetrics()
+        private (GPUMetrics, GPUMetrics) QueryGPUMetrics()
         {
             try
             {
@@ -103,7 +107,7 @@ namespace TransientTRIApp.Core.GPU
                     if (process == null)
                     {
                         Console.WriteLine("Failed to start nvidia-smi process");
-                        return null;
+                        return (null, null);
                     }
 
                     string output = process.StandardOutput.ReadToEnd();
@@ -112,34 +116,48 @@ namespace TransientTRIApp.Core.GPU
                     if (string.IsNullOrWhiteSpace(output))
                     {
                         Console.WriteLine("nvidia-smi returned empty output");
-                        return null;
+                        return (null, null);
                     }
 
                     // Parse output: "25, 45" (utilization, temperature)
-                    string[] parts = output.Trim().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                    string[] parts = output.Trim().Split(new[] { ',', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    GPUMetrics gpu0 = null;
+                    GPUMetrics gpu1 = null;
 
-                    if (parts.Length >= 2)
+                    if (parts.Length >= 4)
                     {
-                        if (double.TryParse(parts[0].Trim(), out double utilization) &&
-                            double.TryParse(parts[1].Trim(), out double temperature))
+                        if (double.TryParse(parts[0].Trim(), out double utilization0) &&
+                            double.TryParse(parts[1].Trim(), out double temperature0))
                         {
-                            return new GPUMetrics
+                            gpu0 = new GPUMetrics
                             {
-                                GPUUtilization = utilization,
-                                GPUTemperature = temperature,
+                                GPUUtilization = utilization0,
+                                GPUTemperature = temperature0,
                                 Timestamp = DateTime.Now
                             };
                         }
+
+                        if (double.TryParse(parts[2].Trim(), out double utilization1) &&
+                            double.TryParse(parts[3].Trim(), out double temperature1))
+                        {
+                            gpu1 = new GPUMetrics
+                            {
+                                GPUUtilization = utilization1,
+                                GPUTemperature = temperature1,
+                                Timestamp = DateTime.Now
+                            };
+                        }
+                        return (gpu0, gpu1);
                     }
 
                     Console.WriteLine($"Failed to parse nvidia-smi output: {output}");
-                    return null;
+                    return (null, null);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error querying GPU metrics: {ex.Message}");
-                return null;
+                return (null, null);
             }
         }
     }

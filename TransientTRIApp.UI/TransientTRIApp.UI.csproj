@@ -89,6 +89,7 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="MainWindow.Extensions\MainWindow.Camera.cs" />
+    <Compile Include="MainWindow.Extensions\MainWindow.GPULoad.cs" />
     <Compile Include="MainWindow.Extensions\MainWindow.Metrics.cs" />
     <Compile Include="MainWindow.Extensions\MainWindow.PulseGenerator.cs" />
     <Compile Include="MainWindow.Extensions\MainWindow.Recording.cs" />

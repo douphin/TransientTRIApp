@@ -84,7 +84,7 @@ namespace TransientTRIApp.UI
                 string metricsPath = System.IO.Path.Combine(_recordingSessionFolder, $"metrics_{timestamp}.csv");
 
                 _csvFile = new StreamWriter(metricsPath, true);
-                _csvFile.WriteLine("TCTimestamp, GPUTimestamp,TCTemperature(C),GPUTemperature(C),GPUUtilization(%)");
+                _csvFile.WriteLine("TCTimestamp, GPUTimestamp,TCTemperature(C),GPUTemperature0(C),GPUUtilization0(%),GPUTemperature1(C),GPUUtilization1(%)");
                 _csvFile.Flush();
 
                 // Create images subfolder
@@ -131,7 +131,7 @@ namespace TransientTRIApp.UI
 
                     foreach (CombinedMetrics item in _csvModel.Values)
                     {
-                        _csvFile.WriteLine($"{item.TCTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.GPUTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.TCTemperature:F2},{item.GPUTemperature:F2},{item.GPUUtilization:F1}");
+                        _csvFile.WriteLine($"{item.TCTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.GPUTimestamp:yyyy-MM-dd HH:mm:ss.fff},{item.TCTemperature:F2},{item.GPUTemperature0:F2},{item.GPUUtilization0:F1},{item.GPUTemperature1:F2},{item.GPUUtilization1:F1}");
                         _csvFile.Flush();
                     }
                 });

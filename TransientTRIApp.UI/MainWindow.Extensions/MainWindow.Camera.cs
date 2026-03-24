@@ -31,10 +31,15 @@ namespace TransientTRIApp.UI
     public partial class MainWindow : Window
     {
         // Global Variables
-        private readonly Mutex _bitmapMutex = new Mutex();
+        //private readonly Mutex _bitmapMutex = new Mutex();
+
+        private readonly ReaderWriterLockSlim _displayImageLockSlim = new ReaderWriterLockSlim();
+        private readonly ReaderWriterLockSlim _cameraImageLockSlim = new ReaderWriterLockSlim();
+
         private volatile bool _isHotFrameRolling = false;
         private Bitmap _currentCameraBitmap;
         private Bitmap _currentDisplayBitmap;
+        private Bitmap _processedFrame;
         private Bitmap _coldFrameBitmap;
         private Bitmap _darkFrameBitmap;
         private Bitmap _hotFrameBitmap;
@@ -62,13 +67,12 @@ namespace TransientTRIApp.UI
         /// </summary>
         private void PixelValueCountTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
-            Bitmap localBitmap;
+            Bitmap localBitmap = null;
 
-            _bitmapMutex.WaitOne();
-            {
+            EnterReadLock(_cameraImageLockSlim, () => 
+            {       
                 localBitmap = _currentCameraBitmap?.Clone() as Bitmap;
-            }
-            _bitmapMutex.ReleaseMutex();
+            });
 
             if (localBitmap != null)
             {
@@ -124,72 +128,68 @@ namespace TransientTRIApp.UI
 
                 if (double.TryParse(Coefficient.Text, out double coe))
                     cf.Coefficient = coe;
-                if (double.TryParse(Coefficient.Text, out double adhoc))
-                    cf.Coefficient = adhoc;
+                if (double.TryParse(AdHocFactor.Text, out double adhoc))
+                    cf.AdHocFactor = adhoc;
 
-
-                // Store the current bitmap temporarily
-                try
+                EnterWriteLock(_cameraImageLockSlim, () =>
                 {
-                    _bitmapMutex.WaitOne();
+                    _currentCameraBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
+
+                    cf.Frame = (Bitmap)_currentCameraBitmap.Clone();
+
+                    // Saves Scale Rate on program startup between actual image size and image display size, usually ~2.26 I think
+                    if (_elementImageScaleRateX == -1 && _frameCount > 10)
                     {
-                        _currentCameraBitmap = (Bitmap)e.Bmp.Clone(); // Clone it for storage
-
-                        cf.Frame = (Bitmap)_currentCameraBitmap.Clone();
-                        _currentDisplayBitmap = ImageProcessing.ProcessFrame(cf);
-
-                        cf.Dispose();
-
-                        // Saves Scale Rate on program startup between actual image size and image display size, usually ~2.26 I think
-                        if (_elementImageScaleRateX == -1 && _frameCount > 10)
-                        {
-                            _elementImageScaleRateX = _currentCameraBitmap.Width / CameraImage.ActualWidth;
-                            _elementImageScaleRateY = _currentCameraBitmap.Height / CameraImage.ActualHeight;
-                        }
-
-                        // Set current image on UI
-                        CameraImage.Source = ConvertBitmap(_currentDisplayBitmap);
+                        _elementImageScaleRateX = _currentCameraBitmap.Width / CameraImage.ActualWidth;
+                        _elementImageScaleRateY = _currentCameraBitmap.Height / CameraImage.ActualHeight;
                     }
-                    _bitmapMutex.ReleaseMutex();
-                }
-                // An exception can be thrown if the mutex is waiting when the program ends and it gets disposed, this is just to smooth that out
-                catch (ObjectDisposedException ex)
-                {
-                    Console.WriteLine(ex.Message);
-                    return;
-                }
+                });
 
-                // This should really only be true just after program startup, to autofill the darkframe
-                if (_darkFrameBitmap == null && _frameCount > 10)
+                Task.Run(() =>
                 {
-                    SetDarkFrame();
-                    StartLED();
-                }
+                    HandleNewFrame(cf);
+                });
+            });
+        }
 
-                
+        private void HandleNewFrame(CameraFrame cf)
+        {
+            _processedFrame = ImageProcessing.ProcessFrame(cf);
+
+            UI(() => {
+
+                EnterWriteLock(_displayImageLockSlim, () =>
+                {
+                    _currentDisplayBitmap = _processedFrame;
+
+                    // Set current image on UI
+                    CameraImage.Source = ConvertBitmap(_currentDisplayBitmap);
+                });
 
                 lock (_frameCountLock)
                 {
                     _frameCount++;
                     Frame.Text = _frameCount.ToString();
                 }
+
+                // This should really only be true just after program startup, to autofill the darkframe/coldFrame
+                if (_darkFrameBitmap == null && _frameCount > 10)
+                {
+                    SetDarkFrame();
+                    StartLED();
+                    //SetColdFrame();
+                }
+
+                cf.Dispose();
             });
         }
 
-
-        /// <summary>
-        /// Method to retrieve the captured bitmap (thread-safe)
-        /// </summary>
-        public Bitmap GetCapturedBitmap()
+        private void UpdateImageShift(object sender, (double, double) shift)
         {
-            Bitmap temp;
-            _bitmapMutex.WaitOne();
+            UI(() =>
             {
-                // Return a clone so caller doesn't accidentally dispose it
-                temp = _coldFrameBitmap?.Clone() as Bitmap;
-            }
-            _bitmapMutex.ReleaseMutex();
-            return temp;
+                ImageShift.Text = $"({shift.Item1:F2}, {shift.Item2:F2})";
+            });
         }
 
         /// <summary>
@@ -198,27 +198,27 @@ namespace TransientTRIApp.UI
         /// </summary>
         private void SetDarkFrame()
         {
-            _bitmapMutex.WaitOne();
+            if (_currentCameraBitmap != null)
             {
-                if (_currentCameraBitmap != null)
-                {
-                    // Dispose old captured bitmap
-                    _darkFrameBitmap?.Dispose();
+                // Dispose old captured bitmap
+                _darkFrameBitmap?.Dispose();
 
-                    // Clone the current display bitmap for storage
-                    _darkFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
-                    _tcReadingForDarkFrame = TCTemperatureData.LastOrDefault();
-                    ImageProcessing.SetNewMatRefDark(_darkFrameBitmap);
-                    _darkFrameTime = DateTime.Now;
-                    DarkFrameTime.Text = _darkFrameTime.ToLongTimeString();
-                    DarkFrameTemp.Text = _tcReadingForDarkFrame.ToString("F1") + " (°C)";
-                }
-                else
+                // Clone the current display bitmap for storage
+                EnterReadLock(_cameraImageLockSlim, () =>
                 {
-                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                    _darkFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
+                });
+
+                _tcReadingForDarkFrame = TCTemperatureData.LastOrDefault();
+                ImageProcessing.SetNewMatRefDark(_darkFrameBitmap);
+                _darkFrameTime = DateTime.Now;
+                DarkFrameTime.Text = _darkFrameTime.ToLongTimeString();
+                DarkFrameTemp.Text = _tcReadingForDarkFrame.ToString("F1") + " (°C)";
             }
-            _bitmapMutex.ReleaseMutex();
+            else
+            {
+                MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
@@ -227,27 +227,27 @@ namespace TransientTRIApp.UI
         /// </summary>
         private void SetColdFrame()
         {
-            _bitmapMutex.WaitOne();
+            if (_currentCameraBitmap != null)
             {
-                if (_currentCameraBitmap != null)
-                {
-                    // Dispose old captured bitmap
-                    _coldFrameBitmap?.Dispose();
+                // Dispose old captured bitmap
+                _coldFrameBitmap?.Dispose();
 
-                    // Clone the current display bitmap for storage
-                    _coldFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
-                    _tcReadingForColdFrame = TCTemperatureData.LastOrDefault();
-                    ImageProcessing.SetNewMatRefCold(_coldFrameBitmap);
-                    _coldFrameTime = DateTime.Now;
-                    ColdFrameTime.Text = _coldFrameTime.ToLongTimeString();
-                    ColdFrameTemp.Text = _tcReadingForColdFrame.ToString("F1") + " (°C)";
-                }
-                else
+                // Clone the current display bitmap for storage
+                EnterReadLock(_cameraImageLockSlim, () =>
                 {
-                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                    _coldFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
+                });
+
+                _tcReadingForColdFrame = TCTemperatureData.LastOrDefault();
+                ImageProcessing.SetNewMatRefCold(_coldFrameBitmap);
+                _coldFrameTime = DateTime.Now;
+                ColdFrameTime.Text = _coldFrameTime.ToLongTimeString();
+                ColdFrameTemp.Text = _tcReadingForColdFrame.ToString("F1") + " (°C)";
             }
-            _bitmapMutex.ReleaseMutex();
+            else
+            {
+                MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
@@ -256,27 +256,27 @@ namespace TransientTRIApp.UI
         /// </summary>
         private void SetHotFrame()
         {
-            _bitmapMutex.WaitOne();
+            if (_currentCameraBitmap != null)
             {
-                if (_currentCameraBitmap != null)
-                {
-                    // Dispose old captured bitmap
-                    _hotFrameBitmap?.Dispose();
+                // Dispose old captured bitmap
+                _hotFrameBitmap?.Dispose();
 
-                    // Clone the current display bitmap for storage
-                    _hotFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
-                    _tcReadingForHotFrame = TCTemperatureData.LastOrDefault();
-                    ImageProcessing.SetNewMatRefHot(_hotFrameBitmap);
-                    _hotFrameTime = DateTime.Now;
-                    HotFrameTime.Text = _hotFrameTime.ToLongTimeString();
-                    HotFrameTemp.Text = _tcReadingForHotFrame.ToString("F1") + " (°C)";
-                }
-                else
+                // Clone the current display bitmap for storage
+                EnterReadLock(_cameraImageLockSlim, () =>
                 {
-                    MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                    _hotFrameBitmap = (Bitmap)_currentCameraBitmap.Clone();
+                });
+
+                _tcReadingForHotFrame = TCTemperatureData.LastOrDefault();
+                ImageProcessing.SetNewMatRefHot(_hotFrameBitmap);
+                _hotFrameTime = DateTime.Now;
+                HotFrameTime.Text = _hotFrameTime.ToLongTimeString();
+                HotFrameTemp.Text = _tcReadingForHotFrame.ToString("F1") + " (°C)";
             }
-            _bitmapMutex.ReleaseMutex();
+            else
+            {
+                MessageBox.Show("No frame available to capture", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
@@ -321,15 +321,19 @@ namespace TransientTRIApp.UI
             if (_isRecording == false && label.Contains("Final") == false && label.Contains("Initial") == false)
                 return;
 
-            Bitmap localCameraFrame;
-            Bitmap localDisplayFrame;
+            Bitmap localCameraFrame = null;
+            Bitmap localDisplayFrame = null;
 
-            _bitmapMutex.WaitOne();
+            EnterReadLock(_cameraImageLockSlim, () =>
             {
                 localCameraFrame = _currentCameraBitmap?.Clone() as Bitmap;
+            });
+
+            EnterReadLock(_displayImageLockSlim, () =>
+            {
+
                 localDisplayFrame = _currentDisplayBitmap?.Clone() as Bitmap;
-            }
-            _bitmapMutex.ReleaseMutex();
+            });
 
             if (localCameraFrame == null)
             {
@@ -345,9 +349,9 @@ namespace TransientTRIApp.UI
 
                 localCameraFrame.Save(filepath, System.Drawing.Imaging.ImageFormat.Png);
 
-                if (_isHotFrameRolling)
+                if (_isHotFrameRolling && localDisplayFrame != null)
                 {
-                    filename = $"{label}_HotFrame.png";
+                    filename = $"{label}_ProcessedFrame.png";
                     filepath = Path.Combine(_recordingSessionFolder, "images", filename);
 
                     localDisplayFrame.Save(filepath, System.Drawing.Imaging.ImageFormat.Png);
@@ -375,6 +379,32 @@ namespace TransientTRIApp.UI
 
             AvgCTRofImage.Text = CTRs.Item1.ToString();
             AvgCTRofROI.Text = CTRs.Item2.ToString();
+        }
+
+        private void EnterReadLock(ReaderWriterLockSlim rwLock, Action func)
+        {
+            rwLock.EnterReadLock();
+            try
+            {
+                func();
+            }
+            finally
+            {
+                rwLock.ExitReadLock();
+            }
+        }
+
+        private void EnterWriteLock(ReaderWriterLockSlim rwLock, Action func)
+        {
+            rwLock.EnterWriteLock();
+            try
+            {
+                func();
+            }
+            finally
+            {
+                rwLock.ExitWriteLock();
+            }
         }
     }
 }

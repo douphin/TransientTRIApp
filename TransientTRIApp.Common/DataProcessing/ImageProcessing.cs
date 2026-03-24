@@ -5,11 +5,13 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using OpenCvSharp;
+using TransientTRIApp.Common.DataProcessing;
 using TransientTRIApp.Common.Models;
 using Mat = Emgu.CV.Mat;
 
@@ -18,7 +20,15 @@ namespace TransientTRIApp.Common
     public class ImageProcessing
     {
 
-        // Class-level variables to prevent GC pressure at 30 FPS
+        // Class-level variables to prevent Garbage Collector (GC) pressure at 20 FPS
+        // So to elaborate why we're declaring 5 million mats. Basically allocating/deallocating memory space for a mat can take a hot second
+        // which means that if we are trying to create/destroy a bunch of Mats every frame we could be slowing everything down by a lot.
+        // To avoid this, we pre-declare all (most) of the mats we'll need, so once they get allocated, they stay allocated, and don't get garbage collected until
+        // the program ends. 
+        // Now obviously it does seem at least minorly problematic in some way to take the approach of declaring 5 million mats for anything we could possible need
+        // but at least for now, I think its okay. There is another approach which uses a MatPool, which is just a Dictionary<string, Mat> but this is effectively
+        // the same thing that we are doing here it just cleans up initialization while slightly complicating the processs of referencing and assigning Mat values.
+        // Still, it feels like there has got to be a better way. Which if true, I'd be all ears to learn about, but I'll admit I haven't looked too hard to find it.
         private static Mat _matDark = new Mat();
         private static Mat _matCold = new Mat();
         private static Mat _matHot = new Mat();
@@ -32,18 +42,32 @@ namespace TransientTRIApp.Common
         private static Mat _matNormalized = new Mat();
         private static Mat _matColorMap = new Mat();
 
+        private static Mat _inputMatA = new Mat();
+        private static Mat _inputMatB = new Mat();
+        private static Mat _buffer = new Mat();
+
         private static Mat _roiMat = new Mat();
 
-        private static Mat aligned = new Mat();
+        private static Mat _aligned = new Mat();
 
-        private static Mat hannWindow = new Mat();
+        private static Mat _hannWindowScaled = new Mat();
+        private static Mat _hannWindowNative = new Mat();
 
-        private static Mat currentGray = new Mat();
-        private static Mat referenceGray = new Mat();
-        private static Mat gray = new Mat();
-        private static Mat currentFramePrime = new Mat();
-        private static Mat referenceFramePrime = new Mat();
-        private static System.Drawing.Size _processSize = new System.Drawing.Size(813, 618); // Lower resolution for speed
+        private static Mat _currentGray = new Mat();
+        private static Mat _referenceGray = new Mat();
+        private static Mat _gray = new Mat();
+
+        private static Mat _currentFrameScaled = new Mat();        
+        private static Mat _currentFrameNative = new Mat();
+        private static Mat _currentFramePrimeScaled = new Mat();
+        private static Mat _currentFramePrimeNative = new Mat();
+
+        private static Mat _referenceFrameScaled = new Mat();
+        private static Mat _referenceFrameNative = new Mat();
+        private static Mat _referenceFramePrimeScaled = new Mat();   
+        private static Mat _referenceFramePrimeNative = new Mat();
+
+        private static System.Drawing.Size _processSize; // Lower resolution for speed
 
         private static Mat _returnedBitmap = new Mat();
 
@@ -55,6 +79,10 @@ namespace TransientTRIApp.Common
         private static MCvScalar _blue = new MCvScalar(255, 0, 0);
         private static MCvScalar _yellow = new MCvScalar(0, 255, 255);
         private static MCvScalar _white = new MCvScalar(255, 255, 255);
+
+        public static EventHandler<(double, double)> ImageShiftEvent;
+
+        public static int _isShiftRunning = 0;
 
         public static void PreProcess()
         {
@@ -79,6 +107,8 @@ namespace TransientTRIApp.Common
 
             if (cf.roi != null)
                 CvInvoke.Rectangle(_returnedBitmap, cf.roi, _red, 2);
+
+            Task.Run(() => { RoutineImageShift(); });
 
             return _returnedBitmap.ToBitmap();
         }
@@ -109,7 +139,7 @@ namespace TransientTRIApp.Common
 
             if (cf.DivideByColdFrame)
                 CvInvoke.Divide(_matResultSubtracted, _matColdPrime, _matResultDivided);
-            else
+            else 
                 _matResultDivided = _matResultSubtracted;
 
             // TODO apply cf.ColdFrameTCReading
@@ -123,7 +153,7 @@ namespace TransientTRIApp.Common
             if (cf.NormalizeBeforeMap)
                 CvInvoke.Normalize(_matGray, _matNormalized, 0, 255, NormType.MinMax, DepthType.Cv8U);
 
-            // Theoretically we could use a LUT which would be quicked instead of doing ApplyColorMap() every time, but I can't get it to work so maybe if speed is an issue in the future take another look
+            // Theoretically we could use a Lookup Table (LUT) which would be quicked instead of doing ApplyColorMap() every time, but I can't get it to work so maybe if speed is an issue in the future take another look
             //CvInvoke.LUT(_matNormalized, _jetLUT, _matColorMap);
             if (cf.ApplyColorMap)
                 CvInvoke.ApplyColorMap(_matNormalized, _matColorMap, Emgu.CV.CvEnum.ColorMapType.Jet);
@@ -217,32 +247,32 @@ namespace TransientTRIApp.Common
         {
             Stopwatch sw = new Stopwatch();
             sw.Start();
-            
 
-            
-            CvInvoke.CvtColor(currentFrame, gray, ColorConversion.Bgr2Gray);
-            CvInvoke.Resize(gray, currentGray, _processSize);
+            _currentFrameScaled = currentFrame;
+            _referenceFrameScaled = referenceFrame;
 
-            CvInvoke.CvtColor(referenceFrame, gray, ColorConversion.Bgr2Gray);
-            CvInvoke.Resize(gray, referenceGray, _processSize);
+            if (_processSize.IsEmpty)
+                _processSize = new System.Drawing.Size(currentFrame.Width / 2, currentFrame.Height / 2);
 
-            if (hannWindow.Size != currentGray.Size)
-                CvInvoke.CreateHanningWindow(hannWindow, new System.Drawing.Size(currentGray.Width, currentGray.Height), DepthType.Cv32F);
+            CvInvoke.CvtColor(_currentFrameScaled, _gray, ColorConversion.Bgr2Gray);
+            CvInvoke.Resize(_gray, _currentGray, _processSize);
 
-            Console.WriteLine($" First {sw.ElapsedMilliseconds}");
-            //Console.WriteLine($"{currentFrame.Depth.ToString()} {referenceFrame.Depth.ToString()}");
-            
+            CvInvoke.CvtColor(_referenceFrameScaled, _gray, ColorConversion.Bgr2Gray);
+            CvInvoke.Resize(_gray, _referenceGray, _processSize);
 
+            if (_hannWindowScaled.Size != _currentGray.Size)
+                CvInvoke.CreateHanningWindow(_hannWindowScaled, new System.Drawing.Size(_currentGray.Width, _currentGray.Height), DepthType.Cv32F);
 
-            currentGray.ConvertTo(currentFramePrime, DepthType.Cv32F, (double)1 / (double)255);
-            referenceGray.ConvertTo(referenceFramePrime, DepthType.Cv32F, (double)1/(double)255);
-            Console.WriteLine($" Second {sw.ElapsedMilliseconds}");
-            //Console.WriteLine($"{currentFramePrime.GetType().ToString()} {referenceFramePrime.Depth.ToString()}");
+            //Console.WriteLine($" First {sw.ElapsedMilliseconds}");
+
+            _currentGray.ConvertTo(_currentFramePrimeScaled, DepthType.Cv32F, (double)1 / (double)255);
+            _referenceGray.ConvertTo(_referenceFramePrimeScaled, DepthType.Cv32F, (double)1/(double)255);
+            //Console.WriteLine($" Second {sw.ElapsedMilliseconds}");
 
             // Phase correlation finds translation (x, y offset)
             // Returns: the shift amount
-            var shift = CvInvoke.PhaseCorrelate(referenceFramePrime, currentFramePrime, hannWindow, out double _);
-            Console.WriteLine($" Third {sw.ElapsedMilliseconds}");
+            var shift = CvInvoke.PhaseCorrelate(_referenceFramePrimeScaled, _currentFramePrimeScaled, _hannWindowScaled, out double _);
+            //Console.WriteLine($" Third {sw.ElapsedMilliseconds}");
 
             float scaleX = (float)currentFrame.Width / _processSize.Width;
             float scaleY = (float)currentFrame.Height / _processSize.Height;
@@ -251,7 +281,7 @@ namespace TransientTRIApp.Common
             float finalShiftY = (float)shift.Y * scaleY - 1;
 
             // shift[0] = x offset, shift[1] = y offset
-            Console.WriteLine($"Vibration detected: X={shift.X:F2}px, Y={shift.Y:F2}px Upscaled X={finalShiftX:F2}px, Y={finalShiftY:F2}px");
+            //Console.WriteLine($"Vibration detected: X={shift.X:F2}px, Y={shift.Y:F2}px Upscaled X={finalShiftX:F2}px, Y={finalShiftY:F2}px");
 
             using (Matrix<float> matrix = new Matrix<float>(2, 3))
             {
@@ -265,58 +295,81 @@ namespace TransientTRIApp.Common
                 matrix[1, 2] = (float)finalShiftY; // The Y translation
 
                 // matrix.Mat gives you the underlying Mat required by WarpAffine
-                CvInvoke.WarpAffine(currentFrame, aligned, matrix.Mat, currentFrame.Size);
+                CvInvoke.WarpAffine(_currentFrameScaled, _aligned, matrix.Mat, _currentFrameScaled.Size);
                 sw.Stop();
-                Console.WriteLine($" Final {sw.ElapsedMilliseconds}");
-                return aligned;
+                //Console.WriteLine($" Final {sw.ElapsedMilliseconds}");
+                return _aligned;
             }
         }
 
-        private static Mat NativeAlignFrameWithPhaseCorrelation(Mat currentFrame, Mat referenceFrame)
-        {
+        private static Mat NativeAlignFrameWithPhaseCorrelation(Mat currentFrame, Mat referenceFrame, out (double, double) shift)
+        {          
             Stopwatch sw = new Stopwatch();
             sw.Start();
 
-            CvInvoke.CvtColor(currentFrame, currentGray, ColorConversion.Bgr2Gray);
-            CvInvoke.CvtColor(referenceFrame, referenceGray, ColorConversion.Bgr2Gray);
+            _currentFrameNative = currentFrame;
+            _referenceFrameNative = referenceFrame;
 
-            if (hannWindow.Size != currentGray.Size)
-                CvInvoke.CreateHanningWindow(hannWindow, new System.Drawing.Size(currentGray.Width, currentGray.Height), DepthType.Cv32F);
+            CvInvoke.CvtColor(_currentFrameNative, _currentGray, ColorConversion.Bgr2Gray);
+            CvInvoke.CvtColor(_referenceFrameNative, _referenceGray, ColorConversion.Bgr2Gray);
 
-            Console.WriteLine($" First {sw.ElapsedMilliseconds}");
+            if (_hannWindowNative.Size != _currentGray.Size)
+                CvInvoke.CreateHanningWindow(_hannWindowNative, new System.Drawing.Size(_currentGray.Width, _currentGray.Height), DepthType.Cv32F);
+
+            //Console.WriteLine($" First {sw.ElapsedMilliseconds}");
             //Console.WriteLine($"{currentFrame.Depth.ToString()} {referenceFrame.Depth.ToString()}");
 
-
-
-            currentGray.ConvertTo(currentFramePrime, DepthType.Cv32F, (double)1 / (double)255);
-            referenceGray.ConvertTo(referenceFramePrime, DepthType.Cv32F, (double)1 / (double)255);
-            Console.WriteLine($" Second {sw.ElapsedMilliseconds}");
+            _currentGray.ConvertTo(_currentFramePrimeNative, DepthType.Cv32F, (double)1 / (double)255);
+            _referenceGray.ConvertTo(_referenceFramePrimeNative, DepthType.Cv32F, (double)1 / (double)255);
+            //Console.WriteLine($" Second {sw.ElapsedMilliseconds}");
             //Console.WriteLine($"{currentFramePrime.GetType().ToString()} {referenceFramePrime.Depth.ToString()}");
 
             // Phase correlation finds translation (x, y offset)
             // Returns: the shift amount
-            var shift = CvInvoke.PhaseCorrelate(referenceFramePrime, currentFramePrime, hannWindow, out double _);
-            Console.WriteLine($" Third {sw.ElapsedMilliseconds}");
+            var pointShift = CvInvoke.PhaseCorrelate(_referenceFramePrimeNative, _currentFramePrimeNative, _hannWindowNative, out double _);
+           // Console.WriteLine($" Third {sw.ElapsedMilliseconds}");
 
             // shift[0] = x offset, shift[1] = y offset
-            Console.WriteLine($"Vibration detected: X={shift.X:F2}px, Y={shift.Y:F2}px");
+            //Console.WriteLine($"Vibration detected: X={pointShift.X:F2}px, Y={pointShift.Y:F2}px");
+            shift = (pointShift.X,  pointShift.Y);
 
             using (Matrix<float> matrix = new Matrix<float>(2, 3))
             {
                 // Set values directly using [row, col] indexers
                 matrix[0, 0] = 1.0f;
                 matrix[0, 1] = 0.0f;
-                matrix[0, 2] = (float)shift.X; // The X translation
+                matrix[0, 2] = (float)pointShift.X; // The X translation
 
                 matrix[1, 0] = 0.0f;
                 matrix[1, 1] = 1.0f;
-                matrix[1, 2] = (float)shift.Y; // The Y translation
+                matrix[1, 2] = (float)pointShift.Y; // The Y translation
 
                 // matrix.Mat gives you the underlying Mat required by WarpAffine
-                CvInvoke.WarpAffine(currentFrame, aligned, matrix.Mat, currentFrame.Size);
+                CvInvoke.WarpAffine(_currentFrameNative, _aligned, matrix.Mat, _currentFrameNative.Size);
                 sw.Stop();
-                Console.WriteLine($" Final {sw.ElapsedMilliseconds}");
-                return aligned;
+                //Console.WriteLine($" Final {sw.ElapsedMilliseconds}");
+                return _aligned;
+            }
+        }
+
+        public static void RoutineImageShift()
+        {
+            // If already running, skip this frame entirely
+            // okay so this part is actually pretyty important, it prevents the memory from ballooning when the app is out of focus
+            if (Interlocked.CompareExchange(ref _isShiftRunning, 1, 0) != 0)
+                return;
+
+            try
+            {
+                if (_matHot.IsEmpty || _matCold.IsEmpty)
+                    return;
+
+                NativeAlignFrameWithPhaseCorrelation(_matCold, _matHot, out (double, double) shift);
+                ImageShiftEvent?.Invoke(null, shift);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _isShiftRunning, 0);
             }
         }
 
@@ -345,20 +398,22 @@ namespace TransientTRIApp.Common
 
         public static (double, double) ComputeCTR(double tempChange, Rectangle roi)
         {
-            _matHotDoublePrime = NativeAlignFrameWithPhaseCorrelation(_matHotPrime, _matColdPrime);
+            Mat matHotDoublePrime = NativeAlignFrameWithPhaseCorrelation(_matHotPrime, _matColdPrime, out _);
+            Mat matResultSubtracted = new Mat();
+            Mat matResultDivided = new Mat();
 
             // Ih'' - Ic' = Irs
-            CvInvoke.Subtract(_matHotDoublePrime, _matColdPrime, _matResultSubtracted);
+            CvInvoke.Subtract(matHotDoublePrime, _matColdPrime, matResultSubtracted);
 
             // Irs / Ic' = Ird
-            CvInvoke.Divide(_matResultSubtracted, _matColdPrime, _matResultDivided);
+            CvInvoke.Divide(matResultSubtracted, _matColdPrime, matResultDivided);
 
             // Ird / deltaT = Ctr(x, y)
-            _matResultTempScaled = _matResultDivided / tempChange;
-            _roiMat = new Mat(_matResultTempScaled, roi);
+            Mat matResultTempScaled = matResultDivided / tempChange;
+            Mat roiMat = new Mat(matResultTempScaled, roi);
 
-            var imageMean = CvInvoke.Mean(_matResultTempScaled);
-            var roiMean = CvInvoke.Mean(_roiMat);
+            var imageMean = CvInvoke.Mean(matResultTempScaled);
+            var roiMean = CvInvoke.Mean(roiMat);
 
             Console.WriteLine($"{imageMean.V0} {imageMean.V1} {imageMean.V2} {imageMean.V3}");
             Console.WriteLine($"{roiMean.V0} {roiMean.V1} {roiMean.V2} {roiMean.V3}");
@@ -384,6 +439,48 @@ namespace TransientTRIApp.Common
 
             bmp.UnlockBits(data);
             return finalMat;
+        }
+
+        // So when we do the phase correlate to track image translation, we use a hanning window to focus on the center of the image instead of the edges
+        // This function, which I did get straight from Claude, should theoretically bias the hanning window towards an roi. idk if this is actually needed 
+        // or what but maybe it might be helpful at some point for some reason.
+        private Mat CreateBiasedHanningWindow(System.Drawing.Rectangle roi, int width, int height)
+        {
+            // 1. Create standard Hanning window
+            Mat hannWindow = new Mat();
+            CvInvoke.CreateHanningWindow(hannWindow, new System.Drawing.Size(width, height), DepthType.Cv32F);
+
+            // 2. Create a weight mask - start with low base weight everywhere
+            Mat weightMask = new Mat(height, width, DepthType.Cv32F, 1);
+            weightMask.SetTo(new MCvScalar(0.1)); // low weight outside ROI
+
+            // 3. Set ROI region to full weight
+            Mat roiRegion = new Mat(weightMask, roi);
+            roiRegion.SetTo(new MCvScalar(1.0));
+
+            // 4. Optional: blur the mask edges to avoid sharp transitions
+            // Sharp edges in the weight mask can introduce frequency artifacts
+            CvInvoke.GaussianBlur(weightMask, weightMask,
+                new System.Drawing.Size(roi.Width / 4 | 1, roi.Height / 4 | 1), // ensure odd kernel size
+                0);
+
+            // 5. Multiply the Hanning window by the weight mask
+            Mat biasedHann = new Mat();
+            CvInvoke.Multiply(hannWindow, weightMask, biasedHann);
+
+            // 6. Normalize so peak = 1.0 (optional but keeps amplitude consistent)
+            double min = 0, max = 0;
+
+            System.Drawing.Point minLoc = new System.Drawing.Point(0, 0);
+            System.Drawing.Point maxLoc = new System.Drawing.Point(0, 0);
+
+            CvInvoke.MinMaxLoc(biasedHann, ref min, ref max, ref minLoc, ref maxLoc);
+            if (max > 0)
+                CvInvoke.Multiply(biasedHann, new ScalarArray(new MCvScalar(1.0 / max)), biasedHann);
+
+            weightMask.Dispose();
+            roiRegion.Dispose();
+            return biasedHann;
         }
     }
 }

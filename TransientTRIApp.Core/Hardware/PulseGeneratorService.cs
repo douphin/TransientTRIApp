@@ -15,7 +15,19 @@ namespace TransientTRIApp.Core.Hardware
         private IMessageBasedSession _session;
         private bool _connected = false;
         private int _commandDelayMs = 400;
-        
+
+        private bool _initialSetupStep1Complete = false;
+        private bool _initialSetupStep2Complete = false;
+        private bool _initialSetupStep3Complete = false;
+
+        private bool _configureSettingsStep1Complete = false;
+        private bool _configureSettingsStep2Complete = false;
+        private bool _configureSettingsStep3Complete = false;
+
+        private bool _readSettingsStep1Complete = false;
+        private bool _readSettingsStep2Complete = false;
+        private bool _readSettingsStep3Complete = false;
+
         public double TriggerRateHz { get; set; }
         public double PulseWidthSec { get; set; }
         public double LVPeakV {  get; set; }
@@ -42,33 +54,57 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
-        public void InitialConfiguration()
+        public void InitialConfiguration(int recurseCount = 0)
         {
             try
             {
                 // Send initial configuration commands
-                SendCommand("MO PL");
-                Console.WriteLine("Sent: MO PL");
-                Thread.Sleep(_commandDelayMs);
+                if (_initialSetupStep1Complete == false)
+                {
+                    SendCommand("MO PL");
+                    Console.WriteLine("Sent: MO PL");
+                    Thread.Sleep(_commandDelayMs);
+                    _initialSetupStep1Complete = true;
+                }
 
-                SendCommand("TR SC");
-                Console.WriteLine("Sent: TR SC");
-                Thread.Sleep(_commandDelayMs);
+                if (_initialSetupStep2Complete == false)
+                {
+                    SendCommand("TR SC");
+                    Console.WriteLine("Sent: TR SC");
+                    Thread.Sleep(_commandDelayMs);
+                    _initialSetupStep2Complete = true;
+                }
 
-                SendCommand("TR EP");
-                Console.WriteLine("Sent: TR EP");
-                Thread.Sleep(_commandDelayMs);
+                if (_initialSetupStep3Complete == false)
+                {
+                    SendCommand("TR EP");
+                    Console.WriteLine("Sent: TR EP");
+                    Thread.Sleep(_commandDelayMs);
+                    _initialSetupStep3Complete = true;
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error During Initial Pulse Generator Configuration {ex.Message}");
+
+                if (recurseCount < 3)
+                    InitialConfiguration(recurseCount + 1);
+                else
+                    throw;
             }
         }
 
-        public void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV)
+        public void Configure(double triggerRateHz, double pulseWidthSec, double lvPeakV, int recurseCount = 0)
         {
             if (!_connected)
                 throw new InvalidOperationException("Pulse generator not connected. Call Connect() first.");
+
+            if (recurseCount == 0)
+            {
+                _configureSettingsStep1Complete = false;
+                _configureSettingsStep2Complete = false;
+                _configureSettingsStep3Complete = false;
+            }
 
             try
             {
@@ -156,10 +192,17 @@ namespace TransientTRIApp.Core.Hardware
             }
         }
 
-        public void GetCurrentSettings()
+        public void GetCurrentSettings(int recurseCount = 0)
         {
             if (!_connected)
                 throw new InvalidOperationException("Pulse generator not connected.");
+
+            if (recurseCount == 0)
+            {
+                _readSettingsStep1Complete = false;
+                _readSettingsStep1Complete = false;
+                _readSettingsStep1Complete = false;
+            }
 
             try
             {

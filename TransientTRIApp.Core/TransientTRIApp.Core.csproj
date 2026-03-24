@@ -97,6 +97,9 @@
     <Folder Include="Services\" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="OpenCL.Net">
+      <Version>2.2.9</Version>
+    </PackageReference>
     <PackageReference Include="OpenCvSharp4.Extensions">
       <Version>4.11.0.20250507</Version>
     </PackageReference>

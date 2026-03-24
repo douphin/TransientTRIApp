@@ -37,27 +37,38 @@ namespace TransientTRIApp.UI
         /// <summary>
         /// Update graph in UI with most recent GPU values and if recording, save them to CombinedMetrics object
         /// </summary>
-        private void OnGPUMetricsUpdated(object sender, GPUMetrics metrics)
+        private void OnGPUMetricsUpdated(object sender, (GPUMetrics, GPUMetrics) metrics)
         {
             UI(() =>
             {
-                GPUUtilizationData.Add(metrics.GPUUtilization);
-                if (GPUUtilizationData.Count > MaxDataPoints)
-                    GPUUtilizationData.RemoveAt(0);
+                GPUUtilizationData0.Add(metrics.Item1.GPUUtilization);
+                if (GPUUtilizationData0.Count > MaxDataPoints)
+                    GPUUtilizationData0.RemoveAt(0);
 
-                GPUTemperatureData.Add(metrics.GPUTemperature);
-                if (GPUTemperatureData.Count > MaxDataPoints)
-                    GPUTemperatureData.RemoveAt(0);
+                GPUTemperatureData0.Add(metrics.Item1.GPUTemperature);
+                if (GPUTemperatureData0.Count > MaxDataPoints)
+                    GPUTemperatureData0.RemoveAt(0);
+
+                if (metrics.Item2 != null)
+                {
+                    GPUUtilizationData1.Add(metrics.Item2.GPUUtilization);
+                    if (GPUUtilizationData1.Count > MaxDataPoints)
+                        GPUUtilizationData1.RemoveAt(0);
+
+                    GPUTemperatureData1.Add(metrics.Item2.GPUTemperature);
+                    if (GPUTemperatureData1.Count > MaxDataPoints)
+                        GPUTemperatureData1.RemoveAt(0);
+                }
             });
 
             if (_isRecording)
             {
                 lock (_csvModelLock)
                 {
-                    if (_csvModel.TryGetValue(metrics.Timestamp.ToString(), out var value))
+                    if (_csvModel.TryGetValue(metrics.Item1.Timestamp.ToString(), out var value))
                         value.Update(metrics);
                     else
-                        _csvModel.Add(metrics.Timestamp.ToString(), new CombinedMetrics(metrics));
+                        _csvModel.Add(metrics.Item1.Timestamp.ToString(), new CombinedMetrics(metrics));
                 }
             }
         }

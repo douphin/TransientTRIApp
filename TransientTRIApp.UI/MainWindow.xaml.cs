@@ -16,6 +16,7 @@ using TransientTRIApp.Common;
 using TransientTRIApp.Common.Events;
 using TransientTRIApp.Common.Interfaces;
 using TransientTRIApp.Common.Models;
+using TransientTRIApp.Common.Util;
 using TransientTRIApp.Core;
 using TransientTRIApp.Core.Camera;
 using TransientTRIApp.Core.GPU;
@@ -26,8 +27,6 @@ using System.Linq;
 
 /*
  * TODO:
- * ROI image alignment
- * Use ReaderWriterLockSlim
  * Implement Image Processing Step Procedure
  * Add GPU loading
  * Add Calibration settings
@@ -41,7 +40,7 @@ namespace TransientTRIApp.UI
 {
     public partial class MainWindow : Window
     {
-        private readonly IGPUMonitoringService _gpuMonitor;
+        private readonly GPUMonitoringService _gpuMonitor;
         private readonly IPulseGeneratorService _pulseGenerator;
         private readonly ICameraService _cameraService;
         private readonly IThermocoupleService _thermocoupleService;
@@ -52,8 +51,10 @@ namespace TransientTRIApp.UI
         private readonly System.Timers.Timer _frameTimer = new System.Timers.Timer();
         private readonly System.Timers.Timer _pixelValueCountTimer = new System.Timers.Timer();
 
-        public ChartValues<double> GPUUtilizationData;
-        public ChartValues<double> GPUTemperatureData;
+        public ChartValues<double> GPUUtilizationData0;
+        public ChartValues<double> GPUTemperatureData0;
+        public ChartValues<double> GPUUtilizationData1;
+        public ChartValues<double> GPUTemperatureData1;
         public ChartValues<double> TCTemperatureData;
         public ChartValues<double> PixelValueCount;
 
@@ -69,9 +70,12 @@ namespace TransientTRIApp.UI
             _cameraService.FrameReady += OnFrameReady;
             _gpuMonitor.MetricsUpdated += OnGPUMetricsUpdated;
             _thermocoupleService.TempReady += OnTCReadingsUpdated;
+            ImageProcessing.ImageShiftEvent += UpdateImageShift;
 
             InitializeChartData();
             BindUISliders();
+            UpdateGPUDropDownList();
+            BindUIDropDowns();
 
             ImageProcessing.PreProcess();
 
@@ -80,8 +84,10 @@ namespace TransientTRIApp.UI
 
         private void InitializeChartData()
         {
-            GPUUtilizationData = new ChartValues<double>();
-            GPUTemperatureData = new ChartValues<double>();
+            GPUUtilizationData0 = new ChartValues<double>();
+            GPUTemperatureData0 = new ChartValues<double>();
+            GPUUtilizationData1 = new ChartValues<double>();
+            GPUTemperatureData1 = new ChartValues<double>();
             TCTemperatureData = new ChartValues<double>();
             PixelValueCount = new ChartValues<double>();
         }
@@ -99,7 +105,7 @@ namespace TransientTRIApp.UI
             {
                 if (double.TryParse(TriggerRateInput.Text, out double value))
                 {
-                    TriggerRateSlider.Value = Clamp(value, TriggerRateSlider.Minimum, TriggerRateSlider.Maximum);
+                    TriggerRateSlider.Value = Helper.Clamp(value, TriggerRateSlider.Minimum, TriggerRateSlider.Maximum);
                 }
             };
             TriggerRateValue.Text = TriggerRateSlider.Value.ToString();
@@ -114,7 +120,7 @@ namespace TransientTRIApp.UI
             {
                 if (double.TryParse(PulseWidthInput.Text, out double value))
                 {
-                    PulseWidthSlider.Value = Clamp(value, PulseWidthSlider.Minimum, PulseWidthSlider.Maximum);
+                    PulseWidthSlider.Value = Helper.Clamp(value, PulseWidthSlider.Minimum, PulseWidthSlider.Maximum);
                 }
             };
             PulseWidthValue.Text = PulseWidthSlider.Value.ToString();
@@ -129,7 +135,7 @@ namespace TransientTRIApp.UI
             {
                 if (double.TryParse(LVPeakInput.Text, out double value))
                 {
-                    LVPeakSlider.Value = Clamp(value, LVPeakSlider.Minimum, LVPeakSlider.Maximum);
+                    LVPeakSlider.Value = Helper.Clamp(value, LVPeakSlider.Minimum, LVPeakSlider.Maximum);
                 }
             };
             LVPeakValue.Text = LVPeakSlider.Value.ToString();
@@ -162,16 +168,52 @@ namespace TransientTRIApp.UI
             {
                 if (double.TryParse(ExposureInput.Text, out double value))
                 {
-                    ExposureSlider.Value = Clamp(value, ExposureSlider.Minimum, ExposureSlider.Maximum);
+                    ExposureSlider.Value = Helper.Clamp(value, ExposureSlider.Minimum, ExposureSlider.Maximum);
                 }
             };
         }
 
-        private double Clamp(double value, double min, double max)
+        private void BindUIDropDowns()
         {
-            if (value < min) return min;
-            if (value > max) return max;
-            return value;
+            _gpuLoadOptionParams = new System.Collections.Generic.Dictionary<string, GPULoadUIVisibility>
+            {
+                { "Static Load"          ,  new GPULoadUIVisibility(GPULoadUIVisibility.Static, true, false, true, false, false, false)},
+                { "Square Wave"          ,  new GPULoadUIVisibility(GPULoadUIVisibility.Square, true, true, true, true, false, true)},
+                { "Sawtooth"             ,  new GPULoadUIVisibility(GPULoadUIVisibility.Sawtooth, true, true, true, true, true, true)},
+                { "Exponential Sawtooth" ,  new GPULoadUIVisibility(GPULoadUIVisibility.ExpSawtooth, true, true, true, true, true, true)},
+                { "Sine Wave"            ,  new GPULoadUIVisibility(GPULoadUIVisibility.Sine, true, true, true, true, true, true)},
+            };
+
+            GPULoadingOptions.ItemsSource = _gpuLoadOptionParams.Keys;
+            
+            GPULoadingOptions.SelectionChanged += (s, e) =>
+            {
+                GPULoadUIVisibility tempParams = _gpuLoadOptionParams[GPULoadingOptions.SelectedValue.ToString()];
+
+                GPULoadTimeInput.Visibility = AssignVisibility(tempParams.IsShowingGPULoadTimeInput);
+                GPULoadTimeInputLabel.Visibility = AssignVisibility(tempParams.IsShowingGPULoadTimeInput);
+
+                GPUMinLoadPercentage.Visibility = AssignVisibility(tempParams.IsShowingGPUMinLoadPercentage);
+                GPUMinLoadPercentageLabel.Visibility = AssignVisibility(tempParams.IsShowingGPUMinLoadPercentage);
+
+                GPUMaxLoadPercentage.Visibility = AssignVisibility(tempParams.IsShowingGPUMaxLoadPercentage);
+                GPUMaxLoadPercentageLabel.Visibility = AssignVisibility(tempParams.IsShowingGPUMaxLoadPercentage);
+
+                GPUWavePeriod.Visibility = AssignVisibility(tempParams.IsShowingGPUWavePeriod);
+                GPUWavePeriodLabel.Visibility = AssignVisibility(tempParams.IsShowingGPUWavePeriod);
+
+                GPUWaveStepLength.Visibility = AssignVisibility(tempParams.IsShowingGPUWaveStepLength);
+                GPUWaveStepLengthLabel.Visibility = AssignVisibility(tempParams.IsShowingGPUWaveStepLength);
+
+                GPURestTime.Visibility = AssignVisibility(tempParams.IsShowingGPURestTime);
+                GPURestTimeLabel.Visibility = AssignVisibility(tempParams.IsShowingGPURestTime);
+            };
+            GPULoadingOptions.SelectedIndex = 0;
+        }    
+
+        private Visibility AssignVisibility(bool shouldShow)
+        {
+            return shouldShow ? Visibility.Visible : Visibility.Hidden;
         }
 
         private void UI(Action action)
@@ -184,10 +226,10 @@ namespace TransientTRIApp.UI
             base.OnContentRendered(e);
 
             // Setup chart series
-            var gpuUtilizationSeries = new LineSeries
+            var gpuUtilizationSeries0 = new LineSeries
             {
-                Title = "GPU Utilization (%)",
-                Values = GPUUtilizationData,
+                Title = "0GPU Utilization (%)",
+                Values = GPUUtilizationData0,
                 StrokeThickness = 2,
                 Stroke = System.Windows.Media.Brushes.CornflowerBlue,
                 Fill = System.Windows.Media.Brushes.Transparent,
@@ -195,15 +237,37 @@ namespace TransientTRIApp.UI
                 LineSmoothness = 0,           
             };
 
-            var gpuTemperatureSeries = new LineSeries
+            var gpuTemperatureSeries0 = new LineSeries
             {
-                Title = "GPU Temperature (°C)",
-                Values = GPUTemperatureData,
+                Title = "0GPU Temperature (°C)",
+                Values = GPUTemperatureData0,
                 StrokeThickness = 2,
-                Stroke = System.Windows.Media.Brushes.OrangeRed,
+                Stroke = System.Windows.Media.Brushes.Orange,
                 Fill = System.Windows.Media.Brushes.Transparent,
                 PointGeometrySize = 0,
                 LineSmoothness = 0,               
+            };
+
+            var gpuUtilizationSeries1 = new LineSeries
+            {
+                Title = "1GPU Utilization (%)",
+                Values = GPUUtilizationData1,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.DarkViolet,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
+            };
+
+            var gpuTemperatureSeries1 = new LineSeries
+            {
+                Title = "1GPU Temperature (°C)",
+                Values = GPUTemperatureData1,
+                StrokeThickness = 2,
+                Stroke = System.Windows.Media.Brushes.Crimson,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                PointGeometrySize = 0,
+                LineSmoothness = 0,
             };
 
             var tcTemperatureSeries = new LineSeries
@@ -229,7 +293,7 @@ namespace TransientTRIApp.UI
                 LineSmoothness = 0,
             };
 
-            GPUChart.Series = new SeriesCollection { gpuUtilizationSeries, gpuTemperatureSeries, tcTemperatureSeries };
+            GPUChart.Series = new SeriesCollection { gpuUtilizationSeries0, gpuTemperatureSeries0, gpuUtilizationSeries1, gpuTemperatureSeries1, tcTemperatureSeries };
             PixelValueCountChart.Series = new SeriesCollection {  pixelValueCount };
 
             _ = ReadMachineSettings();
@@ -289,14 +353,6 @@ namespace TransientTRIApp.UI
             Thread.Sleep(100);
             _gpuMonitor.Stop();
             Thread.Sleep(100);
-
-            _bitmapMutex.WaitOne();
-            {
-                _coldFrameBitmap?.Dispose();
-                _currentCameraBitmap?.Dispose();
-            }
-            _bitmapMutex.ReleaseMutex();
-            _bitmapMutex.Dispose();
 
             if (_isRecording)
                 _ = StopRecording();
@@ -420,6 +476,16 @@ namespace TransientTRIApp.UI
         private void OnSaveFrameClicked(object sender, RoutedEventArgs e)
         {
             SaveCurrentFrame($"{_savedFrameCount}_Manual");
+        }
+
+        private void OnStartGPULoadClicked(object sender, RoutedEventArgs e)
+        {
+            HandleGPULoad();
+        }
+
+        private void OnRefreshListClicked(object sender, RoutedEventArgs e)
+        {
+            UpdateGPUDropDownList();
         }
     }
 }
